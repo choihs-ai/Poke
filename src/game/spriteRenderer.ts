@@ -51,24 +51,360 @@ export interface TileNeighbors {
   x?: number;
   y?: number;
   isCity?: boolean;
+  isCave?: boolean;
+  upLeft?: number;
+  upRight?: number;
+  downLeft?: number;
+  downRight?: number;
 }
 
 /**
  * Draws the base DS mint-emerald grass (#58d868) with subtle natural 1px micro-tones
  * (Matching IMG_1323 & IMG_1325 — zero artificial scanline stripes or boxy dots)
  */
-function fillBaseDsGrass(ctx: CanvasRenderingContext2D, gx = 0, gy = 0) {
-  ctx.fillStyle = '#58d868';
-  ctx.fillRect(0, 0, 32, 32);
+// --- Shared overworld palette (one palette for every outdoor tile so nothing clashes) ---
+export const GRASS_BASE = '#78c858';
+const GRASS = {
+  base: GRASS_BASE,
+  light: '#90d870',
+  dark: '#60b048',
+  edge: '#4c9840',
+};
+const DIRT = {
+  base: '#e8d098',
+  light: '#f4e0b0',
+  shade: '#d4b878',
+  dark: '#b89858',
+};
 
-  // Subtle 1px natural grass sheen (barely perceptible DS lawn texture)
-  const shift = ((gx + gy) % 2) * 4;
-  ctx.fillStyle = '#62de72';
-  ctx.fillRect(6 + shift, 8, 2, 1);
-  ctx.fillRect(20 - shift, 22, 2, 1);
-  ctx.fillStyle = '#50ce60';
-  ctx.fillRect(18 + shift, 10, 2, 1);
-  ctx.fillRect(8 - shift, 24, 2, 1);
+/** Deterministic 0..1 hash from world coordinates (stable variation, no flicker). */
+function hash2(x: number, y: number, seed = 0): number {
+  let n = Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(seed | 0, 1442695041);
+  n = Math.imul(n ^ (n >>> 13), 1274126177);
+  n ^= n >>> 16;
+  return (n >>> 0) / 4294967296;
+}
+
+function px(ctx: CanvasRenderingContext2D, color: string, x: number, y: number, w = 1, h = 1) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, w, h);
+}
+
+/**
+ * Lawn: one calm base green plus small hand-placed grass tufts whose
+ * positions come from the tile's world coordinates, so no two tiles repeat.
+ */
+function fillBaseDsGrass(ctx: CanvasRenderingContext2D, wx = 0, wy = 0) {
+  px(ctx, GRASS.base, 0, 0, 32, 32);
+  const tufts = 3 + Math.floor(hash2(wx, wy, 1) * 3);
+  for (let i = 0; i < tufts; i++) {
+    const tx = 2 + Math.floor(hash2(wx, wy, 10 + i) * 26);
+    const ty = 2 + Math.floor(hash2(wx, wy, 20 + i) * 26);
+    // small "v" tuft: two dark blades with a sunlit tip
+    px(ctx, GRASS.dark, tx, ty + 1);
+    px(ctx, GRASS.dark, tx + 2, ty + 1);
+    px(ctx, GRASS.dark, tx + 1, ty + 2);
+    px(ctx, GRASS.light, tx, ty);
+    px(ctx, GRASS.light, tx + 2, ty);
+  }
+  // a few single light specks
+  for (let i = 0; i < 4; i++) {
+    const sx = Math.floor(hash2(wx, wy, 40 + i) * 32);
+    const sy = Math.floor(hash2(wx, wy, 50 + i) * 32);
+    px(ctx, GRASS.light, sx, sy);
+  }
+}
+
+/**
+ * Natural dirt route path, drawn pixel-by-pixel:
+ * - soft, slightly ragged grass borders that line up across tiles
+ * - rounded outer corners and filled inner corners
+ * - a dark rim under the grass lip and pebbles inside
+ */
+function drawDirtPath(ctx: CanvasRenderingContext2D, nb: TileNeighbors, stone = false) {
+  const isPath = (t?: number) => t === 1 || t === 7;
+  const nU = isPath(nb.up), nD = isPath(nb.down), nL = isPath(nb.left), nR = isPath(nb.right);
+  const wx = nb.x ?? 0, wy = nb.y ?? 0;
+  const R = stone ? 4 : 6; // corner radius
+  const BASE_W = 2;
+
+  // ragged border width along an edge, seamless because it uses world pixel coordinates
+  const jag = (along: number, seed: number) =>
+    stone ? BASE_W : BASE_W + (hash2(Math.floor(along / 2), seed, 7) < 0.35 ? 1 : 0);
+  const P = stone
+    ? { base: '#d8d2c4', light: '#ece6da', shade: '#c4bcac', dark: '#9c9484' }
+    : DIRT;
+
+  const isDirt = (x: number, y: number): boolean => {
+    if (x < 0 || y < 0 || x > 31 || y > 31) return false;
+    const gxw = wx * 32 + x, gyw = wy * 32 + y;
+    const wL = nL ? -99 : jag(gyw, wx * 2 + 1);
+    const wR = nR ? -99 : jag(gyw, wx * 2 + 2);
+    const wU = nU ? -99 : jag(gxw, wy * 2 + 3);
+    const wD = nD ? -99 : jag(gxw, wy * 2 + 4);
+    if (x < wL || 31 - x < wR || y < wU || 31 - y < wD) return false;
+    // rounded outer corners
+    const corner = (cx: number, cy: number) => (x - cx) ** 2 + (y - cy) ** 2 > R * R;
+    if (!nU && !nL && x < BASE_W + R && y < BASE_W + R && corner(BASE_W + R, BASE_W + R)) return false;
+    if (!nU && !nR && x > 31 - BASE_W - R && y < BASE_W + R && corner(31 - BASE_W - R, BASE_W + R)) return false;
+    if (!nD && !nL && x < BASE_W + R && y > 31 - BASE_W - R && corner(BASE_W + R, 31 - BASE_W - R)) return false;
+    if (!nD && !nR && x > 31 - BASE_W - R && y > 31 - BASE_W - R && corner(31 - BASE_W - R, 31 - BASE_W - R)) return false;
+    // inner corners (path continues both ways but the diagonal is grass)
+    const r2 = stone ? 0 : 3;
+    if (nU && nL && nb.upLeft !== undefined && !isPath(nb.upLeft) && x * x + y * y < r2 * r2 + 2) return false;
+    if (nU && nR && nb.upRight !== undefined && !isPath(nb.upRight) && (31 - x) ** 2 + y * y < r2 * r2 + 2) return false;
+    if (nD && nL && nb.downLeft !== undefined && !isPath(nb.downLeft) && x * x + (31 - y) ** 2 < r2 * r2 + 2) return false;
+    if (nD && nR && nb.downRight !== undefined && !isPath(nb.downRight) && (31 - x) ** 2 + (31 - y) ** 2 < r2 * r2 + 2) return false;
+    return true;
+  };
+
+  for (let y = 0; y < 32; y++) {
+    for (let x = 0; x < 32; x++) {
+      const d = isDirt(x, y);
+      if (!d) {
+        // grass pixel touching dirt gets a darker edge so the border reads clearly
+        const touches =
+          isDirt(x + 1, y) || isDirt(x - 1, y) || isDirt(x, y + 1) || isDirt(x, y - 1);
+        if (touches) px(ctx, GRASS.edge, x, y);
+        continue;
+      }
+      const grassAbove = !isDirt(x, y - 1) && !(y === 0 && nU);
+      const grassAbove2 = !isDirt(x, y - 2) && !(y <= 1 && nU);
+      const grassLeft = !isDirt(x - 1, y) && !(x === 0 && nL);
+      const grassBelow = !isDirt(x, y + 1) && !(y === 31 && nD);
+      let c = P.base;
+      if (grassAbove) c = P.dark;
+      else if (grassAbove2 || grassLeft) c = P.shade;
+      else if (grassBelow) c = P.light;
+      else if (stone) {
+        // staggered paving stones on a world-aligned grid
+        const gxw = wx * 32 + x, gyw = wy * 32 + y;
+        const row = Math.floor(gyw / 6);
+        if (gyw % 6 === 0 || (gxw + (row % 2) * 5) % 10 === 0) c = P.shade;
+        else if (gyw % 6 === 1) c = P.light;
+      } else {
+        const h = hash2(wx * 32 + x, wy * 32 + y, 99);
+        if (h < 0.035) c = DIRT.shade;
+        else if (h < 0.06) c = DIRT.light;
+      }
+      px(ctx, c, x, y);
+    }
+  }
+  // occasional pebble
+  if (!stone && hash2(wx, wy, 5) < 0.45) {
+    const bx = 8 + Math.floor(hash2(wx, wy, 6) * 14);
+    const by = 8 + Math.floor(hash2(wx, wy, 7) * 14);
+    if (isDirt(bx, by) && isDirt(bx + 2, by + 1)) {
+      px(ctx, DIRT.dark, bx, by + 1, 3, 1);
+      px(ctx, '#f8ecc8', bx, by, 2, 1);
+    }
+  }
+}
+
+
+const ROCK_OUTDOOR = {
+  out: '#3a2818',
+  top: { dark: '#8a6a48', mid: '#b08c64', light: '#c8a87c', hi: '#e0c498' },
+  face: { dark: '#5c402a', mid: '#7c5a3c', light: '#9a7650' },
+};
+const ROCK_CAVE = {
+  out: '#22180e',
+  top: { dark: '#5a4634', mid: '#76604a', light: '#8c765c', hi: '#a48c70' },
+  face: { dark: '#3a2a1e', mid: '#4e3a2a', light: '#664c38' },
+};
+const CAVE_FLOOR = { base: '#a88c68', dark: '#907452', light: '#bca07a' };
+
+function fillCaveFloor(ctx: CanvasRenderingContext2D, wx: number, wy: number) {
+  px(ctx, CAVE_FLOOR.base, 0, 0, 32, 32);
+  for (let i = 0; i < 6; i++) {
+    const x = Math.floor(hash2(wx, wy, 80 + i) * 30);
+    const y = Math.floor(hash2(wx, wy, 90 + i) * 30);
+    px(ctx, CAVE_FLOOR.dark, x, y + 1, 2, 1);
+    px(ctx, CAVE_FLOOR.light, x, y, 2, 1);
+  }
+}
+
+/**
+ * Rock / cliff autotile: rocky plateau on top, a vertical cliff face with
+ * cracks where the tile below is open ground, rounded outer corners.
+ */
+function drawRock(ctx: CanvasRenderingContext2D, nb: TileNeighbors) {
+  const pal = nb.isCave ? ROCK_CAVE : ROCK_OUTDOOR;
+  const isRock = (t?: number) => t === 8 || t === 7;
+  const nU = isRock(nb.up), nD = nb.down === 8 || (nb.down === 7 && !nb.isCave), nL = isRock(nb.left), nR = isRock(nb.right);
+  const wx = nb.x ?? 0, wy = nb.y ?? 0;
+  const FACE = nD ? 0 : 13;
+  const topBottom = 31 - FACE;
+  const inside = (x: number, y: number) => {
+    const r = 3;
+    if (!nU && !nL && x < r && y < r && (r - x) ** 2 + (r - y) ** 2 > r * r) return false;
+    if (!nU && !nR && x > 31 - r && y < r && (x - 31 + r) ** 2 + (r - y) ** 2 > r * r) return false;
+    if (!nD && !nL && x < r && y > 31 - r && (r - x) ** 2 + (y - 31 + r) ** 2 > r * r) return false;
+    if (!nD && !nR && x > 31 - r && y > 31 - r && (x - 31 + r) ** 2 + (y - 31 + r) ** 2 > r * r) return false;
+    return true;
+  };
+  for (let y = 0; y < 32; y++) {
+    for (let x = 0; x < 32; x++) {
+      if (!inside(x, y)) continue;
+      const edgeL = !nL && x === 0, edgeR = !nR && x === 31, edgeU = !nU && y === 0, edgeD = !nD && y === 31;
+      if (edgeL || edgeR || edgeU || edgeD || !inside(x - 1, y) || !inside(x + 1, y) || !inside(x, y - 1)) {
+        px(ctx, pal.out, x, y);
+        continue;
+      }
+      const gx = wx * 32 + x, gy = wy * 32 + y;
+      let c: string;
+      if (y <= topBottom) {
+        // plateau
+        c = pal.top.mid;
+        if (!nU && y === 1) c = pal.top.hi;
+        else if (!nL && x === 1) c = pal.top.light;
+        else if (!nR && x >= 29) c = pal.top.dark;
+        else if (FACE && y === topBottom) c = pal.out; // lip line
+        else if (FACE && y === topBottom - 1) c = pal.top.hi;
+        else {
+          // organic boulders: jittered-cell (Voronoi) pattern in world space
+          let d1 = 1e9, d2 = 1e9, ccy = 0;
+          const bx = Math.floor(gx / 10), by = Math.floor(gy / 9);
+          for (let j = -1; j <= 1; j++) {
+            for (let i = -1; i <= 1; i++) {
+              const qx = (bx + i) * 10 + hash2(bx + i, by + j, 11) * 8;
+              const qy = (by + j) * 9 + hash2(bx + i, by + j, 12) * 7;
+              const d = Math.hypot(gx - qx, gy - qy);
+              if (d < d1) { d2 = d1; d1 = d; ccy = qy; } else if (d < d2) d2 = d;
+            }
+          }
+          if (d2 - d1 < 1.1) c = pal.top.dark;
+          else if (gy - ccy < -1.5 && d2 - d1 > 2.2) c = pal.top.light;
+          else if (gy - ccy > 2.5 && d2 - d1 < 2.4) c = pal.top.dark;
+        }
+      } else {
+        // cliff face
+        const fy = y - topBottom;
+        c = pal.face.mid;
+        if (fy <= 2) c = pal.face.light;
+        if (!nL && x <= 2) c = pal.face.light;
+        if (!nR && x >= 29) c = pal.face.dark;
+        const crackX = (gx + Math.floor(gy / 5) * 3) % 7;
+        if (crackX === 0 && hash2(gx, Math.floor(gy / 4), 13) < 0.7 && fy > 2) c = pal.face.dark;
+        if (fy >= FACE - 2) c = pal.face.dark;
+      }
+      px(ctx, c, x, y);
+    }
+  }
+}
+
+function drawWater(ctx: CanvasRenderingContext2D, nb: TileNeighbors | undefined, frame: number) {
+  const isW = (t?: number) => t === 3;
+  const nU = nb ? isW(nb.up) : true, nD = nb ? isW(nb.down) : true;
+  const nL = nb ? isW(nb.left) : true, nR = nb ? isW(nb.right) : true;
+  const wx = nb?.x ?? 0, wy = nb?.y ?? 0;
+  const m = 2, r = 4;
+  const inW = (x: number, y: number) => {
+    if (x < 0) return nL;
+    if (x > 31) return nR;
+    if (y < 0) return nU;
+    if (y > 31) return nD;
+    if ((!nL && x < m) || (!nR && x > 31 - m) || (!nU && y < m) || (!nD && y > 31 - m)) return false;
+    const c = (cx: number, cy: number) => (x - cx) ** 2 + (y - cy) ** 2 > r * r;
+    if (!nU && !nL && x < m + r && y < m + r && c(m + r, m + r)) return false;
+    if (!nU && !nR && x > 31 - m - r && y < m + r && c(31 - m - r, m + r)) return false;
+    if (!nD && !nL && x < m + r && y > 31 - m - r && c(m + r, 31 - m - r)) return false;
+    if (!nD && !nR && x > 31 - m - r && y > 31 - m - r && c(31 - m - r, 31 - m - r)) return false;
+    return true;
+  };
+  for (let y = 0; y < 32; y++) {
+    for (let x = 0; x < 32; x++) {
+      if (!inW(x, y)) {
+        if (inW(x + 1, y) || inW(x - 1, y) || inW(x, y + 1) || inW(x, y - 1)) px(ctx, GRASS.edge, x, y);
+        continue;
+      }
+      let c = '#4888d8';
+      if (!inW(x, y - 1) || !inW(x, y - 2)) c = '#2c64b0'; // bank shadow at the top
+      else if (!inW(x, y + 1) || !inW(x - 1, y) || !inW(x + 1, y)) c = '#a8d8f8'; // foam
+      else {
+        const gx = wx * 32 + x, gy = wy * 32 + y;
+        if (Math.floor(gy / 4) % 3 === 0 && hash2(Math.floor(gx / 6), Math.floor(gy / 4), 21) < 0.4) c = '#3c78c8';
+        const rx = (gx + frame * 3) % 24, ry = gy % 10;
+        if (ry === 4 && rx < 4 && hash2(Math.floor(gx / 24), Math.floor(gy / 10), 22) < 0.7) c = '#a8d8f8';
+        if (ry === 5 && rx > 0 && rx < 3 && hash2(Math.floor(gx / 24), Math.floor(gy / 10), 22) < 0.7) c = '#78b8f0';
+      }
+      px(ctx, c, x, y);
+    }
+  }
+}
+
+function drawCaveEntrance(ctx: CanvasRenderingContext2D, nb: TileNeighbors) {
+  drawRock(ctx, { ...nb, left: 8, right: 8, down: 1 });
+  const arch = [
+    '.......kkkkkkkkkk.......',
+    '.....kkKKKKKKKKKKkk.....',
+    '...kkKKKKKKKKKKKKKKkk...',
+    '..kKKKKKKKKKKKKKKKKKKk..',
+    '.kKKKKKKKKKKKKKKKKKKKKk.',
+    '.kKKKKKKKKKKKKKKKKKKKKk.',
+    'kKKKKKKKKKKKKKKKKKKKKKKk',
+  ];
+  drawPixelMatrix(ctx, arch, { k: '#22180e', K: '#140c08' }, 4, 12);
+  px(ctx, '#140c08', 5, 19, 22, 13);
+  px(ctx, '#22180e', 4, 19, 1, 13);
+  px(ctx, '#22180e', 27, 19, 1, 13);
+}
+
+/**
+ * Dense tall grass: staggered blade clumps on an 8px grid so neighbouring
+ * tall-grass tiles join into one continuous patch.
+ */
+function drawTallGrass(ctx: CanvasRenderingContext2D, nb: TileNeighbors | undefined, frame: number) {
+  const wx = nb?.x ?? 0, wy = nb?.y ?? 0;
+  const upOpen = nb ? nb.up !== 2 : false;
+  const downOpen = nb ? nb.down !== 2 : false;
+  const top = upOpen ? 3 : 0;
+  px(ctx, '#2f7a34', 0, top, 32, 32 - top);
+
+  const clump = [
+    '.......kk.......',
+    '..kk..kHLk..kk..',
+    '.kHLk.kLLk.kHLk.',
+    '.kLLk.kLGk.kLLk.',
+    'kLLGkkLLGGkkLLGk',
+    'kLGGGkLGGGkLGGGk',
+    'kGGGGGGGGDGGGGDk',
+    'kGGDGGGGDDGGGDDk',
+    '.kGDDGGDDDDGDDk.',
+    '.kDDDDDDDDDDDDk.',
+    '..kDDDDDDDDDDk..',
+    '...kkkkkkkkkk...',
+  ];
+  const pal: Record<string, string> = {
+    k: '#24602a',
+    D: '#2f7a34',
+    G: '#3f9a3c',
+    L: '#66c050',
+    H: '#a8e078',
+  };
+  for (let row = -2; row < 4; row++) {
+    const oy = row * 8 + top;
+    const stagger = (row & 1) * 8;
+    for (let col = -1; col < 3; col++) {
+      const ox = col * 16 + stagger;
+      const h = hash2(wx * 2 + col, wy * 4 + row, 3);
+      const sway = frame && h < 0.5 ? 1 : 0;
+      drawPixelMatrix(ctx, clump, pal, ox + sway, oy);
+    }
+  }
+  if (upOpen) {
+    // let blade tips poke over the lawn edge
+    px(ctx, GRASS.base, 0, 0, 32, top);
+    for (let x = 1; x < 32; x += 4) {
+      const o = ((x >> 2) + wx) & 1 ? 1 : 0;
+      px(ctx, '#24602a', x + o, top - 2, 1, 2);
+      px(ctx, '#66c050', x + o, top - 3);
+    }
+  }
+  if (downOpen) {
+    px(ctx, '#24602a', 0, 30, 32, 1);
+    px(ctx, 'rgba(16,48,16,0.35)', 0, 31, 32, 1);
+  }
 }
 
 /**
@@ -80,19 +416,22 @@ export function getTileCanvas(
   neighbors?: TileNeighbors
 ): HTMLCanvasElement {
   const frame = animFrame % 2;
-  const gx = (neighbors?.x ?? 0) % 2;
-  const gy = (neighbors?.y ?? 0) % 2;
+  const wx = neighbors?.x ?? 0;
+  const wy = neighbors?.y ?? 0;
   const isCity = neighbors?.isCity ? 1 : 0;
   const nbKey = neighbors
-    ? `${neighbors.up}_${neighbors.down}_${neighbors.left}_${neighbors.right}_${gx}_${gy}_${isCity}`
+    ? `${neighbors.up}_${neighbors.down}_${neighbors.left}_${neighbors.right}_${neighbors.upLeft}_${neighbors.upRight}_${neighbors.downLeft}_${neighbors.downRight}_${wx}_${wy}_${isCity}_${neighbors.isCave ? 1 : 0}`
     : 'none';
-  const key = `ds_tile_v5_${tileType}_${frame}_${nbKey}`;
+  // Animated frames only matter for tall grass / flowers / water
+  const animKey = tileType === 2 || tileType === 3 || tileType === 5 ? frame : 0;
+  const key = `ds_tile_v6_${tileType}_${animKey}_${nbKey}`;
   if (spriteCache[key]) return spriteCache[key];
 
   const [canvas, ctx] = createPixelCanvas(32, 32);
 
   // Base DS Mint-Emerald Lawn
-  fillBaseDsGrass(ctx, gx, gy);
+  if (neighbors?.isCave) fillCaveFloor(ctx, wx, wy);
+  else fillBaseDsGrass(ctx, wx, wy);
 
   if (tileType === 1) {
     // 1: Walkable Path — Autotiled with smooth DS interior and rounded corners!
@@ -110,168 +449,42 @@ export function getTileCanvas(
     const ph = 32 - padT - padB;
 
     if (neighbors?.isCity) {
-      // Town / City Paved Stone Road (Matching IMG_1322 & IMG_1326!)
-      ctx.fillStyle = '#989080'; // Outer stone curb
-      ctx.fillRect(padL, padT, pw, ph);
-
-      ctx.fillStyle = '#dcd4c0'; // Warm beige paved surface
-      const inL = padL + (nLeft ? 0 : 2);
-      const inT = padT + (nUp ? 0 : 2);
-      const inW = pw - (nLeft ? 0 : 2) - (nRight ? 0 : 2);
-      const inH = ph - (nUp ? 0 : 2) - (nBottomOrZero(nDown));
-      ctx.fillRect(inL, inT, inW, inH);
-
-      // Subtle DS diagonal herringbone paving joints
-      ctx.fillStyle = '#cdc4b0';
-      for (let py = inT + 2; py < inT + inH - 2; py += 8) {
-        for (let px = inL + 2; px < inL + inW - 4; px += 8) {
-          ctx.fillRect(px, py, 4, 1);
-          ctx.fillRect(px + 4, py + 4, 4, 1);
-        }
-      }
-    } else {
-      // Natural Route / Twinleaf Smooth Lime-Green Trodden Path (Exact match to IMG_1323!)
-      // Outer soft-lime edge (#74dc6c)
-      ctx.fillStyle = '#74dc6c';
-      ctx.fillRect(padL, padT, pw, ph);
-
-      // Smooth bright-lime interior (#90f488) — ZERO artificial dashed lines!
-      const inL = padL + (nLeft ? 0 : 2);
-      const inT = padT + (nUp ? 0 : 2);
-      const inW = pw - (nLeft ? 0 : 2) - (nRight ? 0 : 2);
-      const inH = ph - (nUp ? 0 : 2) - (nDown ? 0 : 2);
-      ctx.fillStyle = '#90f488';
-      ctx.fillRect(inL, inT, inW, inH);
-
-      // Rounded pixel corners when adjacent to grass (exact match to IMG_1323!)
-      ctx.fillStyle = '#58d868';
-      if (!nUp && !nLeft) {
-        ctx.fillRect(padL, padT, 4, 2);
-        ctx.fillRect(padL, padT, 2, 4);
-        ctx.fillStyle = '#74dc6c';
-        ctx.fillRect(padL + 2, padT + 2, 2, 2);
-      }
-      ctx.fillStyle = '#58d868';
-      if (!nUp && !nRight) {
-        ctx.fillRect(32 - padR - 4, padT, 4, 2);
-        ctx.fillRect(32 - padR - 2, padT, 2, 4);
-        ctx.fillStyle = '#74dc6c';
-        ctx.fillRect(32 - padR - 4, padT + 2, 2, 2);
-      }
-      ctx.fillStyle = '#58d868';
-      if (!nDown && !nLeft) {
-        ctx.fillRect(padL, 32 - padB - 2, 4, 2);
-        ctx.fillRect(padL, 32 - padB - 4, 2, 4);
-        ctx.fillStyle = '#74dc6c';
-        ctx.fillRect(padL + 2, 32 - padB - 4, 2, 2);
-      }
-      ctx.fillStyle = '#58d868';
-      if (!nDown && !nRight) {
-        ctx.fillRect(32 - padR - 4, 32 - padB - 2, 4, 2);
-        ctx.fillRect(32 - padR - 2, 32 - padB - 4, 2, 4);
-        ctx.fillStyle = '#74dc6c';
-        ctx.fillRect(32 - padR - 4, 32 - padB - 4, 2, 2);
-      }
+      drawDirtPath(ctx, neighbors, true);
+    } else if (!neighbors?.isCave) {
+      drawDirtPath(ctx, neighbors ?? { up: 1, down: 1, left: 1, right: 1 });
     }
   } else if (tileType === 2) {
-    // 2: Wild Tall Grass — ONE Full-Tile Spiky Crown Bush per 32x32 tile (Exact match to IMG_1325!)
-    const sway = frame === 1 ? 1 : 0;
-    const crownGrassMatrix = [
-      '....kk......kk......kk....',
-      '...kLLk....kLLk....kLLk...',
-      '..kLLLLk..kLLLLk..kLLLLk..',
-      '.kkLLLLk..kLLLLk..kLLLLkk.',
-      'kLLkGGLLkkLLGGLLkkLLGGkLLk',
-      'kLLLGGGGLLLLGGGGLLLLGGGGLLk',
-      '.kLLGGGGGGGGGGGGGGGGGGGGLLk',
-      '.kGGGGGGGGGGGGGGGGGGGGGGGGk',
-      '..kGGGGDDDDGGGGDDDDGGGGGGk.',
-      '..kGGGDDDDDDDDDDDDDDGGGGk..',
-      '...kDDDDDDDDDDDDDDDDDDDDk..',
-      '...kDDDDkkkkkkkkkkkkDDDDk..',
-      '....kkkk............kkkk...',
-    ];
-    const pal = {
-      k: '#104418', // Dark pine outline
-      D: '#186c24', // Deep emerald base
-      G: '#28a030', // Mid vibrant leaf green
-      L: '#60dc48', // Sunlit lime blade tips
-    };
-    drawPixelMatrix(ctx, crownGrassMatrix, pal, 3 + sway, 2, 1);
-    drawPixelMatrix(ctx, crownGrassMatrix, pal, 3, 16, 1);
+    // 2: Wild Tall Grass — dense, continuous patch
+    drawTallGrass(ctx, neighbors, frame);
   } else if (tileType === 3) {
-    // 3: Sinnoh Pond / Lake Water
-    ctx.fillStyle = '#3078c8';
-    ctx.fillRect(0, 0, 32, 32);
-
-    ctx.fillStyle = '#78b870';
-    if (neighbors && neighbors.up !== 3) ctx.fillRect(0, 0, 32, 3);
-    if (neighbors && neighbors.down !== 3) ctx.fillRect(0, 29, 32, 3);
-    if (neighbors && neighbors.left !== 3) ctx.fillRect(0, 0, 3, 32);
-    if (neighbors && neighbors.right !== 3) ctx.fillRect(29, 0, 3, 32);
-
-    const waveShift = frame === 0 ? 0 : 4;
-    ctx.fillStyle = '#58a8f0';
-    ctx.fillRect(4 + waveShift, 8, 10, 2);
-    ctx.fillRect(16 - waveShift, 18, 10, 2);
-    ctx.fillRect(6 + waveShift, 25, 8, 2);
-
-    ctx.fillStyle = '#98d8ff';
-    ctx.fillRect(6 + waveShift, 8, 4, 1);
-    ctx.fillRect(18 - waveShift, 18, 4, 1);
+    // 3: Pond / lake water with banks, foam and drifting ripples
+    drawWater(ctx, neighbors, frame);
   } else if (tileType === 5) {
-    // 5: Animated Sinnoh Wildflowers (Exact match to IMG_1323 left side white/yellow flower clusters!)
-    const sway = frame === 0 ? 0 : 1;
-    const dsFlower = [
-      '.ww..ww.',
-      'wYYwwYYw',
-      '.wwGGww.',
-      '..GGGG..',
-      '.GLLLLG.',
-      '..GGGG..',
+    // 5: Wildflowers — 4-petal blossoms, colour & layout vary per tile, gentle sway
+    const flower = ['..p..', '.ppp.', 'ppcps', '.pss.', '..s..'];
+    const colors = [
+      { p: '#f8f8f8', s: '#c8c8d8', c: '#f0c030' },
+      { p: '#f86878', s: '#c84058', c: '#f8e070' },
+      { p: '#f8d838', s: '#d09820', c: '#f87830' },
     ];
-    const pal = {
-      w: '#ffffff',
-      Y: '#f8d030',
-      G: '#288830',
-      L: '#48b840',
-    };
-    drawPixelMatrix(ctx, dsFlower, pal, 3 + sway, 3);
-    drawPixelMatrix(ctx, dsFlower, pal, 18 + sway, 5);
-    drawPixelMatrix(ctx, dsFlower, pal, 4 + sway, 18);
-    drawPixelMatrix(ctx, dsFlower, pal, 19 + sway, 19);
+    const spots = [
+      [3, 4], [18, 3], [10, 14], [24, 15], [4, 23], [18, 24],
+    ];
+    spots.forEach(([fx, fy], i) => {
+      if (hash2(wx, wy, 60 + i) < 0.25) return;
+      const col = colors[Math.floor(hash2(wx, wy, 70 + i) * colors.length)];
+      const sway = frame && i % 2 ? 1 : 0;
+      px(ctx, GRASS.edge, fx + 2, fy + 5, 1, 2); // stem
+      px(ctx, GRASS.dark, fx + 3, fy + 5); // leaf
+      drawPixelMatrix(ctx, flower, col, fx + sway, fy);
+    });
   } else if (tileType === 7) {
-    // 7: Building Entrance Threshold / Stairs
-    ctx.fillStyle = '#90f488';
-    ctx.fillRect(0, 0, 32, 32);
-    ctx.fillStyle = '#98a0a8';
-    ctx.fillRect(4, 0, 24, 10);
-    ctx.fillStyle = '#dce4ec';
-    ctx.fillRect(6, 2, 20, 6);
+    // 7: Building entrance threshold, or a cave mouth when set into a rock wall
+    if (neighbors && neighbors.up === 8) drawCaveEntrance(ctx, neighbors);
+    else if (!neighbors?.isCave) drawDirtPath(ctx, neighbors ?? { up: 1, down: 1, left: 1, right: 1 }, !!neighbors?.isCity);
   } else if (tileType === 8) {
-    // 8: Molded 3D Brown Cliff / Rock Ridge (Exact match to IMG_1322 & IMG_1326!)
-    ctx.fillStyle = '#5c402c';
-    ctx.fillRect(0, 0, 32, 32);
-
-    ctx.fillStyle = '#8c6c54';
-    ctx.fillRect(2, 2, 28, 28);
-
-    ctx.fillStyle = '#a88468';
-    ctx.fillRect(4, 3, 11, 10);
-    ctx.fillRect(17, 3, 11, 10);
-    ctx.fillRect(3, 16, 12, 11);
-    ctx.fillRect(17, 16, 11, 11);
-
-    ctx.fillStyle = '#c4a084';
-    ctx.fillRect(5, 4, 8, 2);
-    ctx.fillRect(18, 4, 8, 2);
-    ctx.fillRect(4, 17, 9, 2);
-    ctx.fillRect(18, 17, 8, 2);
-
-    ctx.fillStyle = '#483020';
-    ctx.fillRect(0, 14, 32, 2);
-    ctx.fillRect(15, 0, 2, 32);
-    ctx.fillRect(0, 30, 32, 2);
+    // 8: Rock / cliff autotile
+    drawRock(ctx, neighbors ?? { up: 8, down: 8, left: 8, right: 8 });
   } else if (tileType === 12) {
     // 12: Authentic DS 3D White Wooden Picket Fence (Exact match to IMG_1322 & IMG_1325!)
     // Soft ground shadow
@@ -305,6 +518,11 @@ export function getTileCanvas(
     }
   }
 
+  // cliffs cast a short shadow onto the ground tile below them
+  if (neighbors && neighbors.up === 8 && tileType !== 8 && tileType !== 7) {
+    px(ctx, 'rgba(20, 16, 8, 0.28)', 0, 0, 32, 3);
+  }
+
   spriteCache[key] = canvas;
   return canvas;
 }
@@ -320,11 +538,25 @@ function nBottomOrZero(nDown: boolean): number {
  *   crown of the tree below sits 100% on top of dark forest foliage with ZERO grass gaps!
  * - Only when `hasTreeBelow = false` (frontmost tree row) is the braided root trunk drawn.
  */
-export function getTreeCanopyCanvas(hasTreeBelow = false): HTMLCanvasElement {
-  const key = `ds_tree_v5_${hasTreeBelow ? 'mid' : 'front'}`;
+export function getTreeCanopyCanvas(hasTreeBelow = false, variant = 0): HTMLCanvasElement {
+  const v = ((variant % 3) + 3) % 3;
+  const key = `ds_tree_v6_${hasTreeBelow ? 'mid' : 'front'}_${v}`;
   if (spriteCache[key]) return spriteCache[key];
 
-  const [canvas, ctx] = createPixelCanvas(48, 56);
+  const [canvas, raw] = createPixelCanvas(48, 56);
+  // Variant 1 is mirrored, variant 2 uses a deeper palette — breaks up the "stamped" forest look
+  const flip = v === 1;
+  const pal: Record<string, string> =
+    v === 2
+      ? { '#1e3214': '#1a2e16', '#36581c': '#30541e', '#284414': '#24401a', '#547c28': '#4a742a',
+          '#2c4816': '#284418', '#78a434': '#6c9c36', '#446820': '#3e6222', '#94be42': '#86b444' }
+      : {};
+  const ctx = {
+    set fillStyle(c: string) { raw.fillStyle = pal[c] ?? c; },
+    fillRect(x: number, y: number, w: number, h: number) {
+      raw.fillRect(flip ? 48 - x - w : x, y, w, h);
+    },
+  } as unknown as CanvasRenderingContext2D;
 
   if (hasTreeBelow) {
     // Deep forest under-canopy fill so the tapered crown of the lower tree (y+1) NEVER exposes green lawn at the sides!
@@ -423,332 +655,240 @@ export function getTreeCanopyCanvas(hasTreeBelow = false): HTMLCanvasElement {
   ctx.fillRect(33, 11, 2, 2);
   ctx.fillRect(22, 13, 4, 2);
 
+  // Leaf texture: small sunlit / shaded clusters, placed differently per variant
+  for (let i = 0; i < 7; i++) {
+    const lx = 8 + Math.floor(hash2(v, i, 31) * 30);
+    const ly = 8 + Math.floor(hash2(v, i, 32) * 22);
+    ctx.fillStyle = ly < 18 ? '#a8cc58' : '#6c9430';
+    ctx.fillRect(lx, ly, 2, 1);
+    ctx.fillStyle = ly < 18 ? '#78a434' : '#36581c';
+    ctx.fillRect(lx + 1, ly + 1, 2, 1);
+  }
+
   spriteCache[key] = canvas;
   return canvas;
 }
 
-// --- MULTI-TILE 3D-PROJECTED GEN 4 BUILDINGS (Matching IMG_1322, IMG_1323 & IMG_1326!) ---
+// --- MULTI-TILE BUILDINGS (one shared construction kit so every building matches) ---
+type Ramp = { dark: string; mid: string; light: string; hi: string };
+const B_OUT = '#2a2228';
+
+function bRect(ctx: CanvasRenderingContext2D, c: string, x: number, y: number, w: number, h: number) {
+  ctx.fillStyle = c;
+  ctx.fillRect(x, y, w, h);
+}
+
+function drawGableRoof(ctx: CanvasRenderingContext2D, w: number, eaveY: number, r: Ramp) {
+  bRect(ctx, B_OUT, 0, 2, w, eaveY);
+  bRect(ctx, r.mid, 1, 3, w - 2, eaveY - 2);
+  // sunlit ridge
+  bRect(ctx, r.hi, 1, 3, w - 2, 1);
+  bRect(ctx, r.light, 1, 4, w - 2, 3);
+  // shingle rows with staggered joints
+  for (let y = 9, row = 0; y < eaveY - 4; y += 5, row++) {
+    bRect(ctx, r.dark, 1, y, w - 2, 1);
+    bRect(ctx, r.light, 1, y + 1, w - 2, 1);
+    for (let x = 3 + (row % 2) * 4; x < w - 2; x += 8) bRect(ctx, r.dark, x, y + 1, 1, 3);
+  }
+  // side volume + eave lip
+  bRect(ctx, r.light, 1, 3, 1, eaveY - 2);
+  bRect(ctx, r.dark, w - 3, 3, 2, eaveY - 2);
+  bRect(ctx, r.light, 1, eaveY - 4, w - 2, 1);
+  bRect(ctx, r.dark, 1, eaveY - 3, w - 2, 2);
+}
+
+function drawFlatRoof(ctx: CanvasRenderingContext2D, w: number, eaveY: number, r: Ramp) {
+  bRect(ctx, B_OUT, 0, 2, w, eaveY);
+  bRect(ctx, r.light, 1, 3, w - 2, eaveY - 2);
+  bRect(ctx, r.hi, 1, 3, w - 2, 1);
+  bRect(ctx, r.dark, w - 3, 4, 2, eaveY - 3);
+  bRect(ctx, r.dark, 1, eaveY - 3, w - 2, 2);
+  // recessed panel with seams
+  bRect(ctx, r.dark, 5, 7, w - 10, eaveY - 14);
+  bRect(ctx, r.mid, 6, 8, w - 12, eaveY - 16);
+  for (let x = 13; x < w - 8; x += 8) bRect(ctx, r.dark, x, 8, 1, eaveY - 16);
+  bRect(ctx, r.light, 6, 8, w - 12, 1);
+}
+
+function drawWall(ctx: CanvasRenderingContext2D, w: number, h: number, eaveY: number, wall: Ramp) {
+  bRect(ctx, B_OUT, 2, eaveY - 1, w - 4, h - eaveY + 1);
+  bRect(ctx, wall.mid, 3, eaveY, w - 6, h - eaveY - 1);
+  bRect(ctx, wall.dark, 3, eaveY, w - 6, 3); // shadow under the eave
+  bRect(ctx, wall.light, 3, eaveY + 3, 1, h - eaveY - 6);
+  bRect(ctx, wall.dark, w - 5, eaveY + 3, 2, h - eaveY - 6);
+  bRect(ctx, wall.dark, 3, h - 4, w - 6, 3); // foundation
+  bRect(ctx, B_OUT, 3, h - 4, w - 6, 1);
+}
+
+function drawWindow(ctx: CanvasRenderingContext2D, x: number, y: number, ww: number, hh: number) {
+  bRect(ctx, B_OUT, x, y, ww, hh);
+  bRect(ctx, '#f4f4f0', x + 1, y + 1, ww - 2, hh - 2);
+  bRect(ctx, '#5890c8', x + 2, y + 2, ww - 4, hh - 4);
+  bRect(ctx, '#88c0f0', x + 2, y + 2, ww - 4, 2);
+  bRect(ctx, '#d0ecff', x + 3, y + 3, 2, 1);
+  if (ww > 9) bRect(ctx, '#f4f4f0', x + Math.floor(ww / 2), y + 1, 1, hh - 2);
+  bRect(ctx, '#a8a8b0', x, y + hh, ww, 1); // sill
+}
+
+function drawGlassDoor(ctx: CanvasRenderingContext2D, cx: number, h: number, frame = '#9098a8') {
+  bRect(ctx, B_OUT, cx - 11, h - 27, 22, 24);
+  bRect(ctx, frame, cx - 10, h - 26, 20, 22);
+  bRect(ctx, '#3880c8', cx - 9, h - 25, 8, 21);
+  bRect(ctx, '#3880c8', cx + 1, h - 25, 8, 21);
+  bRect(ctx, '#78c0f0', cx - 9, h - 25, 8, 3);
+  bRect(ctx, '#78c0f0', cx + 1, h - 25, 8, 3);
+  bRect(ctx, '#c8ecff', cx - 7, h - 21, 1, 8);
+  bRect(ctx, '#c8ecff', cx + 3, h - 21, 1, 8);
+  bRect(ctx, '#d8d8d0', cx - 12, h - 3, 24, 2); // doormat step
+}
+
+function drawWoodDoor(ctx: CanvasRenderingContext2D, cx: number, h: number) {
+  bRect(ctx, B_OUT, cx - 8, h - 26, 16, 23);
+  bRect(ctx, '#8c5830', cx - 7, h - 25, 14, 22);
+  bRect(ctx, '#a87040', cx - 6, h - 24, 5, 9);
+  bRect(ctx, '#a87040', cx + 1, h - 24, 5, 9);
+  bRect(ctx, '#a87040', cx - 6, h - 13, 5, 9);
+  bRect(ctx, '#a87040', cx + 1, h - 13, 5, 9);
+  bRect(ctx, '#f8d050', cx + 4, h - 15, 2, 2);
+  bRect(ctx, '#c8b8a0', cx - 10, h - 3, 20, 2);
+}
+
+function drawPokeballEmblem(ctx: CanvasRenderingContext2D, cx: number, cy: number) {
+  const m = [
+    '...kkkkk...',
+    '.kkRRRRRkk.',
+    'kRRHRRRRRRk',
+    'kRRRRRRRRRk',
+    'kkkkkwwkkkk',
+    'kWWWkwwkWWk',
+    'kWWWWkkWWWk',
+    '.kkWWWWWkk.',
+    '...kkkkk...',
+  ];
+  drawPixelMatrix(ctx, m, { k: B_OUT, R: '#e83838', H: '#ff9090', w: '#ffffff', W: '#f0f0f0' }, cx - 5, cy - 4);
+}
+
 export function getBuildingStructureCanvas(
   kind: 'house' | 'lab' | 'pokecenter' | 'mart' | 'gym',
   widthTiles: number,
-  heightTiles: number
+  heightTiles: number,
+  variant = 0
 ): HTMLCanvasElement {
   const w = widthTiles * 32;
   const h = heightTiles * 32 + 16;
-  const key = `ds_bldg_v5_${kind}_${w}x${h}`;
+  const v = kind === 'house' ? ((variant % 3) + 3) % 3 : 0;
+  const key = `ds_bldg_v6_${kind}_${w}x${h}_${v}`;
   if (spriteCache[key]) return spriteCache[key];
 
   const [canvas, ctx] = createPixelCanvas(w, h);
+  const eaveY = h - 30;
+  const cx = Math.floor(widthTiles / 2) * 32 + 16; // door is always on the middle tile
+  const whiteWall: Ramp = { dark: '#b8bcc8', mid: '#eceef2', light: '#ffffff', hi: '#ffffff' };
 
-  // Soft 2.5D ground drop shadow
-  ctx.fillStyle = 'rgba(16, 40, 20, 0.32)';
-  ctx.fillRect(2, h - 7, w - 2, 7);
-
-  if (kind === 'pokecenter') {
-    // Authentic Gen 4 PokéCenter (Matching IMG_1326.jpeg!)
-    // Beveled octagonal silhouette
-    ctx.fillStyle = '#241814';
-    ctx.fillRect(6, 4, w - 12, h - 8);
-    ctx.fillRect(2, 10, w - 4, h - 16);
-
-    // Lower curved bay wall & grey-blue corner windows
-    ctx.fillStyle = '#dce4ec';
-    ctx.fillRect(4, h - 30, w - 8, 24);
-    ctx.fillStyle = '#586878';
-    ctx.fillRect(4, h - 28, 18, 20);
-    ctx.fillRect(w - 22, h - 28, 18, 20);
-    ctx.fillStyle = '#78b8e8';
-    ctx.fillRect(6, h - 25, 12, 14);
-    ctx.fillRect(w - 18, h - 25, 12, 14);
-    ctx.fillStyle = '#b8e8ff';
-    ctx.fillRect(8, h - 24, 4, 12);
-    ctx.fillRect(w - 14, h - 24, 4, 12);
-
-    // Vermilion-orange 3D pitched roof (#e05818 / #f07820)
-    ctx.fillStyle = '#c84010';
-    ctx.fillRect(4, 10, w - 8, h - 38);
-    ctx.fillStyle = '#e86418';
-    ctx.fillRect(6, 8, w - 12, h - 42);
-    ctx.fillStyle = '#f88428';
-    ctx.fillRect(10, 6, w - 20, 12);
-
-    // Vertical roof panel seams
-    ctx.fillStyle = '#b8380c';
-    for (let x = 12; x < w - 10; x += 10) {
-      ctx.fillRect(x, 8, 2, h - 42);
-    }
-
-    // White diagonal corner stripes on lower roof (Exact match to IMG_1326!)
-    ctx.fillStyle = '#f8f8fc';
-    ctx.fillRect(6, h - 34, w - 12, 3);
-    ctx.fillRect(8, h - 38, 14, 3);
-    ctx.fillRect(w - 22, h - 38, 14, 3);
-
-    // Central raised cylindrical skylight vault on top of roof (IMG_1326!)
-    const cx = Math.floor(w / 2);
-    ctx.fillStyle = '#482010';
-    ctx.fillRect(cx - 13, 2, 26, 26);
-    ctx.fillStyle = '#d87018';
-    ctx.fillRect(cx - 11, 4, 22, 22);
-    ctx.fillStyle = '#f8a030';
-    ctx.fillRect(cx - 7, 4, 14, 20);
-    ctx.fillStyle = '#ffd068';
-    ctx.fillRect(cx - 3, 4, 6, 18);
-
-    // White half-Pokéball emblem above front door (IMG_1326!)
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(cx - 9, h - 43, 18, 11);
-    ctx.fillRect(cx - 7, h - 45, 14, 2);
-    ctx.fillStyle = '#d84818';
-    ctx.fillRect(cx - 6, h - 40, 12, 3);
-    ctx.fillRect(cx - 3, h - 42, 6, 7);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(cx - 2, h - 40, 4, 3);
-
-    // Glowing cyan automatic entrance doors
-    ctx.fillStyle = '#182838';
-    ctx.fillRect(cx - 12, h - 28, 24, 24);
-    ctx.fillStyle = '#48a8e8';
-    ctx.fillRect(cx - 10, h - 26, 20, 22);
-    ctx.fillStyle = '#a8e8ff';
-    ctx.fillRect(cx - 8, h - 24, 7, 18);
-    ctx.fillRect(cx + 1, h - 24, 7, 18);
+  if (kind === 'house') {
+    const roofs: Ramp[] = [
+      { dark: '#8c2c24', mid: '#c4483a', light: '#dc6a54', hi: '#f09878' },
+      { dark: '#2c4c8c', mid: '#4870c0', light: '#6890d8', hi: '#98b8f0' },
+      { dark: '#2c6c40', mid: '#3c9058', light: '#58b070', hi: '#88d098' },
+    ];
+    const wall: Ramp = { dark: '#c4b494', mid: '#f0e6d0', light: '#fff8ec', hi: '#ffffff' };
+    drawWall(ctx, w, h, eaveY, wall);
+    drawGableRoof(ctx, w, eaveY, roofs[v]);
+    // brick chimney
+    const chx = w - 26;
+    bRect(ctx, B_OUT, chx, 0, 10, 14);
+    bRect(ctx, '#b86848', chx + 1, 1, 8, 12);
+    bRect(ctx, '#d88868', chx + 1, 1, 8, 2);
+    bRect(ctx, '#8c4830', chx + 1, 6, 8, 1);
+    drawWindow(ctx, 10, eaveY + 7, 14, 12);
+    drawWindow(ctx, w - 24, eaveY + 7, 14, 12);
+    drawWoodDoor(ctx, cx, h);
+  } else if (kind === 'pokecenter') {
+    const roof: Ramp = { dark: '#a02828', mid: '#d83838', light: '#f05848', hi: '#ff9080' };
+    drawWall(ctx, w, h, eaveY, whiteWall);
+    drawFlatRoof(ctx, w, eaveY, roof);
+    bRect(ctx, '#ffffff', 1, eaveY - 7, w - 2, 3); // white band
+    bRect(ctx, '#d0d0d8', 1, eaveY - 4, w - 2, 1);
+    // emblem plate on the roof
+    bRect(ctx, B_OUT, cx - 10, 10, 20, 15);
+    bRect(ctx, '#ffffff', cx - 9, 11, 18, 13);
+    drawPokeballEmblem(ctx, cx, 17);
+    drawWindow(ctx, 8, eaveY + 6, 16, 14);
+    drawWindow(ctx, w - 24, eaveY + 6, 16, 14);
+    drawGlassDoor(ctx, cx, h, '#e05050');
   } else if (kind === 'mart') {
-    // Authentic Gen 4 PokéMart
-    ctx.fillStyle = '#182434';
-    ctx.fillRect(4, 6, w - 8, h - 10);
-    ctx.fillRect(2, 10, w - 4, h - 16);
-
-    // Clean white-grey lower facade
-    ctx.fillStyle = '#e8ecf0';
-    ctx.fillRect(4, h - 30, w - 8, 24);
-    ctx.fillStyle = '#98a4b0';
-    ctx.fillRect(4, h - 10, w - 8, 4);
-
-    // Stepped royal-blue 3D roof
-    ctx.fillStyle = '#1c5098';
-    ctx.fillRect(4, 8, w - 8, h - 36);
-    ctx.fillStyle = '#3070c8';
-    ctx.fillRect(6, 8, w - 12, h - 40);
-    ctx.fillStyle = '#5098f0';
-    ctx.fillRect(8, 8, w - 16, 10);
-
-    // Roof seam ribs
-    ctx.fillStyle = '#184480';
-    for (let x = 12; x < w - 10; x += 10) {
-      ctx.fillRect(x, 10, 2, h - 42);
-    }
-
-    // White roof trim band
-    ctx.fillStyle = '#f8fcff';
-    ctx.fillRect(4, h - 33, w - 8, 3);
-
-    // Left display window
-    ctx.fillStyle = '#284060';
-    ctx.fillRect(8, h - 25, 24, 14);
-    ctx.fillStyle = '#78c8f8';
-    ctx.fillRect(10, h - 23, 20, 10);
-    ctx.fillStyle = '#c8f0ff';
-    ctx.fillRect(12, h - 22, 6, 8);
-
-    // Entrance door & blue MART sign
-    const cx = Math.floor(w / 2) + 6;
-    ctx.fillStyle = '#183868';
-    ctx.fillRect(cx - 11, h - 27, 22, 23);
-    ctx.fillStyle = '#48a0e8';
-    ctx.fillRect(cx - 9, h - 25, 18, 21);
-    ctx.fillStyle = '#a8e8ff';
-    ctx.fillRect(cx - 7, h - 23, 6, 17);
-
-    // Blue & white MART sign plaque
-    ctx.fillStyle = '#183868';
-    ctx.fillRect(cx - 12, h - 39, 24, 11);
-    ctx.fillStyle = '#f8fcff';
-    ctx.fillRect(cx - 10, h - 37, 20, 7);
-    ctx.fillStyle = '#2868c8';
-    ctx.fillRect(cx - 8, h - 35, 16, 3);
-  } else if (kind === 'house') {
-    // Authentic Gen 4 Town House with Golden Shingled Roof & Timber-Framed Triangular Gable (Exact match to IMG_1322!)
-    ctx.fillStyle = '#282018';
-    ctx.fillRect(4, 4, w - 8, h - 8);
-    ctx.fillRect(2, 8, w - 4, h - 14);
-
-    // Warm cream-stone lower wall & slate base
-    ctx.fillStyle = '#e8e4d8';
-    ctx.fillRect(4, h - 30, w - 8, 24);
-    ctx.fillStyle = '#b8b2a4';
-    ctx.fillRect(4, h - 30, w - 8, 3);
-    ctx.fillStyle = '#8c887c';
-    ctx.fillRect(4, h - 10, w - 8, 4);
-
-    // Golden-ochre 3D pitched roof (#f8d038 -> #e0a818 -> #b87c10)
-    ctx.fillStyle = '#98640c';
-    ctx.fillRect(3, 6, w - 6, h - 34);
-    ctx.fillStyle = '#d89c18';
-    ctx.fillRect(5, 6, w - 10, h - 36);
-    ctx.fillStyle = '#f0bc28';
-    ctx.fillRect(6, 7, w - 12, h - 40);
-    ctx.fillStyle = '#ffe058';
-    ctx.fillRect(8, 7, w - 16, 6);
-
-    // Shingle tile texture ridges
-    ctx.fillStyle = '#b87c10';
-    for (let x = 10; x < w - 8; x += 8) {
-      ctx.fillRect(x, 8, 2, h - 40);
-    }
-    for (let y = 14; y < h - 34; y += 6) {
-      ctx.fillRect(5, y, w - 10, 1);
-    }
-
-    // Crisp white & brown eaves overhang
-    ctx.fillStyle = '#583c20';
-    ctx.fillRect(3, h - 33, w - 6, 4);
-    ctx.fillStyle = '#f4f0e4';
-    ctx.fillRect(4, h - 32, w - 8, 2);
-
-    // Door position (centered on 3-tile house, or aligned to tile 2 on 4-tile house)
-    const doorCenterX = widthTiles === 4 ? 2 * 32 + 16 : Math.floor(w / 2);
-
-    // Triangular Timber-Framed Gable above the door (Exact match to IMG_1322 top-left house!)
-    for (let step = 0; step < 14; step++) {
-      const gw = 38 - step * 2;
-      const gx = doorCenterX - Math.floor(gw / 2);
-      const gy = h - 31 - step;
-      ctx.fillStyle = '#483018';
-      ctx.fillRect(gx - 3, gy, gw + 6, 2);
-      ctx.fillStyle = '#785430';
-      ctx.fillRect(gx - 1, gy, gw + 2, 2);
-      ctx.fillStyle = '#f4f0e4';
-      ctx.fillRect(gx + 1, gy + 1, gw - 2, 2);
-    }
-    // Timber cross-beams inside the triangular gable (IMG_1322!)
-    ctx.fillStyle = '#684828';
-    ctx.fillRect(doorCenterX - 2, h - 43, 4, 12);
-    ctx.fillRect(doorCenterX - 11, h - 35, 22, 3);
-
-    // Deep-set blue wooden entrance door
-    ctx.fillStyle = '#1c3048';
-    ctx.fillRect(doorCenterX - 10, h - 27, 20, 23);
-    ctx.fillStyle = '#3870b0';
-    ctx.fillRect(doorCenterX - 8, h - 25, 16, 21);
-    ctx.fillStyle = '#285488';
-    ctx.fillRect(doorCenterX - 6, h - 14, 12, 9);
-    ctx.fillStyle = '#88c8ff';
-    ctx.fillRect(doorCenterX - 6, h - 23, 12, 7);
-    ctx.fillStyle = '#d8f0ff';
-    ctx.fillRect(doorCenterX - 5, h - 22, 4, 5);
-
-    // White-framed windows with blue glass & window boxes
-    const winPositions = widthTiles === 4 ? [10, 38, w - 26] : [8, w - 26];
-    for (const wx of winPositions) {
-      if (Math.abs(wx + 9 - doorCenterX) < 18) continue;
-      ctx.fillStyle = '#283850';
-      ctx.fillRect(wx, h - 25, 18, 15);
-      ctx.fillStyle = '#f8f8fc';
-      ctx.fillRect(wx + 1, h - 24, 16, 13);
-      ctx.fillStyle = '#5088c8';
-      ctx.fillRect(wx + 3, h - 22, 12, 9);
-      ctx.fillStyle = '#98d0ff';
-      ctx.fillRect(wx + 4, h - 21, 4, 7);
-      // Window sill
-      ctx.fillStyle = '#c8c4b8';
-      ctx.fillRect(wx, h - 11, 18, 2);
-    }
+    const roof: Ramp = { dark: '#20509c', mid: '#3070d0', light: '#5098e8', hi: '#90c8ff' };
+    drawWall(ctx, w, h, eaveY, whiteWall);
+    drawFlatRoof(ctx, w, eaveY, roof);
+    bRect(ctx, '#ffffff', 1, eaveY - 7, w - 2, 3);
+    bRect(ctx, '#d0d0d8', 1, eaveY - 4, w - 2, 1);
+    // shop signboard
+    bRect(ctx, B_OUT, cx - 18, 11, 36, 13);
+    bRect(ctx, '#ffffff', cx - 17, 12, 34, 11);
+    bRect(ctx, '#3070d0', cx - 14, 14, 28, 2);
+    bRect(ctx, '#3070d0', cx - 14, 18, 20, 2);
+    drawWindow(ctx, 8, eaveY + 6, 16, 14);
+    drawWindow(ctx, w - 24, eaveY + 6, 16, 14);
+    drawGlassDoor(ctx, cx, h, '#4878c8');
   } else if (kind === 'lab') {
-    // Authentic Gen 4 Prof. Rowan Research Lab (Matching IMG_1322 right & IMG_1323 right!)
-    ctx.fillStyle = '#241c18';
-    ctx.fillRect(2, 4, w - 4, h - 8);
-
-    // Raised 3D terracotta-brown parapet frame around roof (Exact match to IMG_1323 right building!)
-    ctx.fillStyle = '#785438';
-    ctx.fillRect(4, 6, w - 8, h - 10);
-    ctx.fillStyle = '#b48864';
-    ctx.fillRect(6, 6, w - 12, h - 34);
-    ctx.fillStyle = '#cfa480';
-    ctx.fillRect(6, 6, w - 12, 4);
-    ctx.fillRect(6, 6, 5, h - 34);
-    ctx.fillRect(w - 11, 6, 5, h - 34);
-
-    // Recessed corrugated slate-blue roof inside parapet (Exact match to IMG_1323 right!)
-    ctx.fillStyle = '#485878';
-    ctx.fillRect(12, 11, w - 24, h - 42);
-    ctx.fillStyle = '#687ca0';
-    for (let y = 13; y < h - 33; y += 5) {
-      ctx.fillRect(14, y, w - 28, 3);
+    const roof: Ramp = { dark: '#505868', mid: '#7c8494', light: '#a0a8b8', hi: '#c8d0e0' };
+    const wall: Ramp = { dark: '#bcae90', mid: '#e8dcc0', light: '#f8f0dc', hi: '#ffffff' };
+    drawWall(ctx, w, h, eaveY, wall);
+    drawFlatRoof(ctx, w, eaveY, roof);
+    // skylights
+    for (let x = 10; x < w - 20; x += 22) {
+      bRect(ctx, B_OUT, x, 11, 16, 9);
+      bRect(ctx, '#68a8d8', x + 1, 12, 14, 7);
+      bRect(ctx, '#b8e0ff', x + 2, 13, 5, 2);
     }
-
-    // Warm stone lower wall
-    ctx.fillStyle = '#e4dcd0';
-    ctx.fillRect(6, h - 30, w - 12, 24);
-    ctx.fillStyle = '#989088';
-    ctx.fillRect(6, h - 10, w - 12, 4);
-
-    // Arched brown entrance awning on tile 2 (door at x=6 in sandgem_town, which is index 2 of 4..7)
-    const doorCenterX = 2 * 32 + 16;
-    ctx.fillStyle = '#482c18';
-    ctx.fillRect(doorCenterX - 16, h - 42, 32, 14);
-    ctx.fillStyle = '#986438';
-    ctx.fillRect(doorCenterX - 14, h - 40, 28, 11);
-    ctx.fillStyle = '#c48c58';
-    ctx.fillRect(doorCenterX - 12, h - 39, 24, 5);
-    // Emblem on awning
-    ctx.fillStyle = '#f8f4e8';
-    ctx.fillRect(doorCenterX - 4, h - 38, 8, 6);
-
-    // Lab entrance glass doors
-    ctx.fillStyle = '#203040';
-    ctx.fillRect(doorCenterX - 11, h - 27, 22, 23);
-    ctx.fillStyle = '#5098d8';
-    ctx.fillRect(doorCenterX - 9, h - 25, 18, 21);
-    ctx.fillStyle = '#a8e0ff';
-    ctx.fillRect(doorCenterX - 7, h - 23, 6, 17);
-    ctx.fillRect(doorCenterX + 1, h - 23, 6, 17);
-
-    // Wide lab windows on left
-    ctx.fillStyle = '#283848';
-    ctx.fillRect(12, h - 25, 36, 14);
-    ctx.fillStyle = '#f0f4f8';
-    ctx.fillRect(13, h - 24, 34, 12);
-    ctx.fillStyle = '#68b4e8';
-    ctx.fillRect(15, h - 22, 14, 8);
-    ctx.fillRect(31, h - 22, 14, 8);
-  } else if (kind === 'gym') {
-    // Oreburgh Pokémon Gym (Industrial Mine Steel & Stone Roof)
-    ctx.fillStyle = '#181c20';
-    ctx.fillRect(2, 4, w - 4, h - 8);
-    ctx.fillStyle = '#384048';
-    ctx.fillRect(4, 6, w - 8, h - 12);
-
-    // Corrugated steel roof panels
-    ctx.fillStyle = '#505864';
-    ctx.fillRect(6, 8, w - 12, h - 36);
-    ctx.fillStyle = '#687480';
-    for (let x = 10; x < w - 10; x += 12) {
-      ctx.fillRect(x, 10, 6, h - 40);
+    // long window band
+    drawWindow(ctx, 8, eaveY + 6, cx - 30, 13);
+    drawWindow(ctx, cx + 16, eaveY + 6, w - cx - 24, 13);
+    // awning
+    bRect(ctx, B_OUT, cx - 15, eaveY + 1, 30, 6);
+    for (let i = 0; i < 7; i++) bRect(ctx, i % 2 ? '#f8f8f8' : '#4890d0', cx - 14 + i * 4, eaveY + 2, 4, 4);
+    drawGlassDoor(ctx, cx, h);
+  } else {
+    // gym (rock-type): bronze roof, stone block walls, boulder emblem
+    const roof: Ramp = { dark: '#6c4020', mid: '#9c6030', light: '#c48040', hi: '#e8a860' };
+    const wall: Ramp = { dark: '#7c7870', mid: '#a8a498', light: '#c8c4b8', hi: '#e0dcd0' };
+    drawWall(ctx, w, h, eaveY, wall);
+    for (let y = eaveY + 4, r = 0; y < h - 5; y += 6, r++) {
+      bRect(ctx, wall.dark, 4, y, w - 9, 1);
+      for (let x = 6 + (r % 2) * 7; x < w - 6; x += 14) bRect(ctx, wall.dark, x, y + 1, 1, 5);
     }
-
-    // Orange-gold steel girder beams
-    ctx.fillStyle = '#d87018';
-    ctx.fillRect(4, 6, w - 8, 5);
-    ctx.fillRect(4, h - 32, w - 8, 4);
-
-    // Gym crest badge in center
-    const cx = Math.floor(w / 2);
-    ctx.fillStyle = '#201810';
-    ctx.fillRect(cx - 12, 14, 24, 16);
-    ctx.fillStyle = '#f0a820';
-    ctx.fillRect(cx - 10, 16, 20, 12);
-    ctx.fillStyle = '#ffe878';
-    ctx.fillRect(cx - 6, 18, 12, 8);
-
-    // Automatic Gym Doors
-    ctx.fillStyle = '#182430';
-    ctx.fillRect(cx - 14, h - 27, 28, 23);
-    ctx.fillStyle = '#50a8d8';
-    ctx.fillRect(cx - 12, h - 25, 24, 21);
-    ctx.fillStyle = '#a8e4ff';
-    ctx.fillRect(cx - 10, h - 23, 9, 17);
-    ctx.fillRect(cx + 1, h - 23, 9, 17);
+    drawFlatRoof(ctx, w, eaveY, roof);
+    // columns
+    for (const x of [6, w - 14]) {
+      bRect(ctx, B_OUT, x, eaveY - 2, 8, h - eaveY - 2);
+      bRect(ctx, '#e8e0d0', x + 1, eaveY - 1, 6, h - eaveY - 4);
+      bRect(ctx, '#b8b0a0', x + 5, eaveY - 1, 2, h - eaveY - 4);
+    }
+    // boulder emblem
+    const rock = [
+      '....kkkkk....',
+      '..kkLLLLMkk..',
+      '.kLLHHLMMMMk.',
+      'kLLHLLMMMMDDk',
+      'kLMMMMMMMDDDk',
+      'kMMMDMMMDDDDk',
+      '.kDDDDDDDDDk.',
+      '..kkkkkkkkk..',
+    ];
+    bRect(ctx, B_OUT, cx - 12, 9, 24, 16);
+    bRect(ctx, '#f0c040', cx - 11, 10, 22, 14);
+    bRect(ctx, '#c89020', cx - 11, 22, 22, 2);
+    drawPixelMatrix(ctx, rock, { k: B_OUT, H: '#e8e0d0', L: '#c0b8a8', M: '#989080', D: '#6c6458' }, cx - 6, 13);
+    // big double doors
+    bRect(ctx, B_OUT, cx - 14, h - 28, 28, 25);
+    bRect(ctx, '#c8a040', cx - 13, h - 27, 26, 23);
+    bRect(ctx, '#4a3424', cx - 11, h - 25, 10, 21);
+    bRect(ctx, '#4a3424', cx + 1, h - 25, 10, 21);
+    bRect(ctx, '#6c4c34', cx - 10, h - 24, 8, 2);
+    bRect(ctx, '#6c4c34', cx + 2, h - 24, 8, 2);
+    bRect(ctx, '#f0c040', cx - 3, h - 15, 2, 2);
+    bRect(ctx, '#f0c040', cx + 1, h - 15, 2, 2);
+    bRect(ctx, '#d8d8d0', cx - 15, h - 3, 30, 2);
   }
 
   spriteCache[key] = canvas;
@@ -757,23 +897,39 @@ export function getBuildingStructureCanvas(
 
 // --- WOODEN SIGNPOST SPRITE (Matching IMG_1322!) ---
 export function getSignpostCanvas(): HTMLCanvasElement {
-  const key = 'ds_signpost_v5';
+  const key = 'ds_signpost_v6';
   if (spriteCache[key]) return spriteCache[key];
 
   const [canvas, ctx] = createPixelCanvas(32, 32);
-  ctx.fillStyle = 'rgba(16, 40, 20, 0.30)';
-  ctx.fillRect(6, 25, 20, 5);
-
-  ctx.fillStyle = '#384038';
-  ctx.fillRect(12, 19, 8, 9);
-  ctx.fillRect(5, 6, 22, 15);
-  ctx.fillStyle = '#98a090';
-  ctx.fillRect(6, 7, 20, 13);
-  ctx.fillStyle = '#dce0d8';
-  ctx.fillRect(8, 9, 16, 9);
-  ctx.fillStyle = '#586058';
-  ctx.fillRect(10, 11, 12, 2);
-  ctx.fillRect(10, 15, 8, 2);
+  const sign = [
+    '..kkkkkkkkkkkkkkkkkkkk..',
+    '.kHHHHHHHHHHHHHHHHHHHHk.',
+    'kHWWWWWWWWWWWWWWWWWWWWSk',
+    'kHWWddddddddddddWWWWWWSk',
+    'kHWWWWWWWWWWWWWWWWWWWWSk',
+    'kHWWddddddddddWWWWWWWWSk',
+    'kHWWWWWWWWWWWWWWWWWWWWSk',
+    'kHWWddddddddddddddWWWWSk',
+    'kHWWWWWWWWWWWWWWWWWWWWSk',
+    '.kSSSSSSSSSSSSSSSSSSSSk.',
+    '..kkkkkkkkkkkkkkkkkkkk..',
+    '.........kPPPk..........',
+    '.........kPPSk..........',
+    '.........kPPSk..........',
+    '.........kPPSk..........',
+    '.........kPPSk..........',
+    '........kkkkkkk.........',
+  ];
+  ctx.fillStyle = 'rgba(16, 48, 16, 0.30)';
+  ctx.fillRect(7, 26, 18, 3);
+  ctx.fillRect(9, 25, 14, 5);
+  drawPixelMatrix(
+    ctx,
+    sign,
+    { k: '#4a2c14', H: '#e8b878', W: '#d09858', S: '#a06c38', d: '#7a4c24', P: '#b07840' },
+    4,
+    10
+  );
 
   spriteCache[key] = canvas;
   return canvas;

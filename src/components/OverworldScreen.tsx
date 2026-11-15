@@ -10,6 +10,7 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { PlayerState, Direction } from '../game/types';
 import { MAPS, TRAINERS } from '../game/mapData';
 import {
+  GRASS_BASE,
   getTileCanvas,
   getTreeCanopyCanvas,
   getBuildingStructureCanvas,
@@ -550,7 +551,9 @@ export const OverworldScreen: React.FC<OverworldScreenProps> = ({
         ctx.scale(2, 2);
 
         // Fill background with DS grass/cave base so even negative camera margin has zero black bars
-        ctx.fillStyle = currentMap.bgm === 'cave' ? '#5c402c' : '#58d868';
+        const rockTopRow =
+          currentMap.tiles[0].filter((t) => t === 8).length > currentMap.width / 2;
+        ctx.fillStyle = currentMap.bgm === 'cave' ? '#5a4634' : rockTopRow ? '#8a6a48' : GRASS_BASE;
         ctx.fillRect(0, 0, viewW, viewH);
 
         ctx.translate(-clampedCamX, -clampedCamY);
@@ -560,10 +563,13 @@ export const OverworldScreen: React.FC<OverworldScreenProps> = ({
         for (let y = 0; y < currentMap.height; y++) {
           for (let x = 0; x < currentMap.width; x++) {
             const tile = currentMap.tiles[y][x];
+            const isCaveMouth = tile === 7 && y > 0 && currentMap.tiles[y - 1][x] === 8;
             const groundTile =
-              tile === 4 || tile === 6 || tile === 7 || tile === 9 || tile === 10 || tile === 11
-                ? 0
-                : tile;
+              isCaveMouth
+                ? 7
+                : tile === 4 || tile === 6 || tile === 7 || tile === 9 || tile === 10 || tile === 11
+                  ? 0
+                  : tile;
             const neighbors = {
               up: y > 0 ? currentMap.tiles[y - 1][x] : tile,
               down: y < currentMap.height - 1 ? currentMap.tiles[y + 1][x] : tile,
@@ -572,6 +578,12 @@ export const OverworldScreen: React.FC<OverworldScreenProps> = ({
               x,
               y,
               isCity: isCityMap,
+              isCave: currentMap.bgm === 'cave',
+              upLeft: y > 0 && x > 0 ? currentMap.tiles[y - 1][x - 1] : tile,
+              upRight: y > 0 && x < currentMap.width - 1 ? currentMap.tiles[y - 1][x + 1] : tile,
+              downLeft: y < currentMap.height - 1 && x > 0 ? currentMap.tiles[y + 1][x - 1] : tile,
+              downRight:
+                y < currentMap.height - 1 && x < currentMap.width - 1 ? currentMap.tiles[y + 1][x + 1] : tile,
             };
             const tileCanvas = getTileCanvas(groundTile, animStep, neighbors);
             ctx.drawImage(tileCanvas, x * tileSize, y * tileSize, tileSize, tileSize);
@@ -584,7 +596,7 @@ export const OverworldScreen: React.FC<OverworldScreenProps> = ({
         // 2a. Seamless Overlapping DS Forest Trees (48x56 canopy, zero gaps horizontally or vertically)
         for (let x = 0; x < currentMap.width; x++) {
           if (currentMap.tiles[0]?.[x] === 4) {
-            const bgTree = getTreeCanopyCanvas(true);
+            const bgTree = getTreeCanopyCanvas(true, (x * 7 + 3) % 3);
             renderables.push({
               sortY: -0.9,
               draw: () => {
@@ -600,7 +612,7 @@ export const OverworldScreen: React.FC<OverworldScreenProps> = ({
               const hasTreeBelow =
                 (y + 1 < currentMap.height && currentMap.tiles[y + 1][x] === 4) ||
                 y === currentMap.height - 1;
-              const treeCanopy = getTreeCanopyCanvas(hasTreeBelow);
+              const treeCanopy = getTreeCanopyCanvas(hasTreeBelow, (x * 7 + y * 5) % 3);
               renderables.push({
                 sortY: y + 0.1,
                 draw: () => {
@@ -614,7 +626,7 @@ export const OverworldScreen: React.FC<OverworldScreenProps> = ({
         // Southern border forest pass so bottom-edge trees continue seamlessly off the bottom of the map
         for (let x = 0; x < currentMap.width; x++) {
           if (currentMap.tiles[currentMap.height - 1]?.[x] === 4) {
-            const southTree = getTreeCanopyCanvas(true);
+            const southTree = getTreeCanopyCanvas(true, (x * 7 + currentMap.height * 5) % 3);
             renderables.push({
               sortY: currentMap.height + 0.1,
               draw: () => {
@@ -632,7 +644,7 @@ export const OverworldScreen: React.FC<OverworldScreenProps> = ({
 
         // 2b. Multi-Tile 3D Buildings
         mapBuildings.forEach((b) => {
-          const bCanvas = getBuildingStructureCanvas(b.kind, b.widthTiles, b.heightTiles);
+          const bCanvas = getBuildingStructureCanvas(b.kind, b.widthTiles, b.heightTiles, b.x + b.y);
           const bottomRow = b.y + b.heightTiles - 1;
           renderables.push({
             sortY: bottomRow + 0.2,
@@ -728,7 +740,7 @@ export const OverworldScreen: React.FC<OverworldScreenProps> = ({
       {/* Main Upper DS Screen Viewport (Full-bleed, ZERO black bars!) */}
       <div
         ref={containerRef}
-        className="relative flex-1 w-full h-full flex items-center justify-center overflow-hidden bg-[#58d868]"
+        className="relative flex-1 w-full h-full flex items-center justify-center overflow-hidden bg-[#78c858]"
       >
         <canvas
           ref={canvasRef}

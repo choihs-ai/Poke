@@ -6,6 +6,7 @@
 import React, { useEffect, useState } from 'react';
 import { sound } from '../game/soundEngine';
 import { Volume2, VolumeX } from 'lucide-react';
+import titleBg from '../assets/images/title_bg.png';
 
 interface TitleScreenProps {
   onStartNewGame: () => void;
@@ -55,7 +56,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
     <div className="relative w-full h-full flex flex-col justify-between items-center bg-[#080c18] p-5 text-white select-none overflow-hidden font-pixel">
       {/* 16-bit Pixel Art Key Art Background of Mount Coronet */}
       <img
-        src="/src/assets/images/title_bg_1794378065271.jpg"
+        src={titleBg}
         alt="Mount Coronet Sinnoh"
         className="absolute inset-0 w-full h-full object-cover pixelated opacity-80 pointer-events-none"
         referrerPolicy="no-referrer"

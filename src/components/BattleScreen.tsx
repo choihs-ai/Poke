@@ -14,6 +14,8 @@ import {
 } from '../game/battleLogic';
 import { sound } from '../game/soundEngine';
 import { getPokemonSpriteUrl, getPokemonFallbackSpriteUrl, getPixelIconDataUrl } from '../game/spriteRenderer';
+import battleBgGrass from '../assets/images/battle_bg_grass.png';
+import battleBgCave from '../assets/images/battle_bg_cave.png';
 
 interface BattleScreenProps {
   playerPokemon: PokemonInstance;
@@ -463,9 +465,7 @@ export const BattleScreen: React.FC<BattleScreenProps> = ({
 
   // Determine which background to show (cave or grass meadow)
   const isCave = enemyPokemon.baseId === 74 || enemyPokemon.baseId === 95 || enemyPokemon.baseId === 408 || enemyPokemon.baseId === 41;
-  const bgImageSrc = isCave
-    ? '/src/assets/images/battle_bg_cave_1794378062272.jpg'
-    : '/src/assets/images/battle_bg_grass_1794378061508.jpg';
+  const bgImageSrc = isCave ? battleBgCave : battleBgGrass;
 
   const enemySpriteSrc = enemySpriteFallback
     ? getPokemonFallbackSpriteUrl(enemyPokemon.baseId, false)
