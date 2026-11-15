@@ -16,6 +16,8 @@ import { sound } from '../game/soundEngine';
 import { getPokemonSpriteUrl, getPokemonFallbackSpriteUrl, getPixelIconDataUrl } from '../game/spriteRenderer';
 import battleBgGrass from '../assets/images/battle_bg_grass.png';
 import battleBgCave from '../assets/images/battle_bg_cave.png';
+import platformGrass from '../assets/images/platform_grass.png';
+import platformCave from '../assets/images/platform_cave.png';
 
 interface BattleScreenProps {
   playerPokemon: PokemonInstance;
@@ -433,39 +435,10 @@ export const BattleScreen: React.FC<BattleScreenProps> = ({
     }, 1000);
   };
 
-  const getHpBarColor = (curr: number, max: number) => {
-    const ratio = curr / max;
-    if (ratio > 0.5) return 'bg-emerald-500';
-    if (ratio > 0.2) return 'bg-amber-400';
-    return 'bg-red-500';
-  };
-
-  const getTypeBadgeColor = (type: string) => {
-    const colors: Record<string, string> = {
-      normal: 'bg-stone-500',
-      fire: 'bg-orange-500',
-      water: 'bg-blue-500',
-      grass: 'bg-emerald-600',
-      electric: 'bg-amber-400 text-slate-950',
-      ice: 'bg-cyan-400 text-slate-950',
-      fighting: 'bg-rose-700',
-      poison: 'bg-purple-600',
-      ground: 'bg-amber-700',
-      flying: 'bg-indigo-400',
-      psychic: 'bg-pink-500',
-      bug: 'bg-lime-600',
-      rock: 'bg-stone-600',
-      ghost: 'bg-violet-800',
-      dragon: 'bg-indigo-700',
-      steel: 'bg-slate-400 text-slate-950',
-      dark: 'bg-neutral-800',
-    };
-    return colors[type] || 'bg-slate-600';
-  };
-
   // Determine which background to show (cave or grass meadow)
   const isCave = enemyPokemon.baseId === 74 || enemyPokemon.baseId === 95 || enemyPokemon.baseId === 408 || enemyPokemon.baseId === 41;
   const bgImageSrc = isCave ? battleBgCave : battleBgGrass;
+  const platformSrc = isCave ? platformCave : platformGrass;
 
   const enemySpriteSrc = enemySpriteFallback
     ? getPokemonFallbackSpriteUrl(enemyPokemon.baseId, false)
@@ -475,59 +448,117 @@ export const BattleScreen: React.FC<BattleScreenProps> = ({
     ? getPokemonFallbackSpriteUrl(playerPokemon.baseId, true)
     : getPokemonSpriteUrl(playerPokemon.baseId, true);
 
+  // --- Pixel UI helpers ---------------------------------------------------
+  const hpFillColor = (curr: number, max: number) => {
+    const ratio = curr / max;
+    if (ratio > 0.5) return '#58d048';
+    if (ratio > 0.2) return '#f8c030';
+    return '#e84838';
+  };
+  const pct = (curr: number, max: number) => `${Math.max(0, Math.min(100, (curr / max) * 100))}%`;
+
+  const TYPE_INFO: Record<string, { ko: string; color: string }> = {
+    normal: { ko: '노말', color: '#a0a090' },
+    fire: { ko: '불꽃', color: '#f07838' },
+    water: { ko: '물', color: '#5090f0' },
+    grass: { ko: '풀', color: '#58b850' },
+    electric: { ko: '전기', color: '#f0c828' },
+    ice: { ko: '얼음', color: '#78d0d8' },
+    fighting: { ko: '격투', color: '#c03828' },
+    poison: { ko: '독', color: '#a048a0' },
+    ground: { ko: '땅', color: '#d8b060' },
+    flying: { ko: '비행', color: '#9890f0' },
+    psychic: { ko: '에스퍼', color: '#f05888' },
+    bug: { ko: '벌레', color: '#a0b820' },
+    rock: { ko: '바위', color: '#b8a038' },
+    ghost: { ko: '고스트', color: '#705898' },
+    dragon: { ko: '드래곤', color: '#7038f8' },
+    steel: { ko: '강철', color: '#b8b8d0' },
+    dark: { ko: '악', color: '#705848' },
+  };
+  type PixelIcon = Parameters<typeof getPixelIconDataUrl>[0];
+  const PIXEL_ICONS: PixelIcon[] = ['pokeball', 'greatball', 'potion', 'super_potion', 'revive', 'badge'];
+  const typeInfo = (t: string) => TYPE_INFO[t] ?? { ko: t, color: '#8890a8' };
+
+  const goBack = () => {
+    sound.playCancel();
+    setMenuMode('main');
+  };
+  const consoleTitle =
+    menuMode === 'moves'
+      ? '어떤 기술을 쓸까?'
+      : menuMode === 'bag'
+        ? '무엇을 사용할까?'
+        : menuMode === 'party'
+          ? '누구로 교체할까?'
+          : null;
+
+  const SwordIcon = () => (
+    <svg viewBox="0 0 16 16" width="22" height="22" shapeRendering="crispEdges" aria-hidden="true">
+      {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+        <rect key={i} x={12 - i} y={1 + i} width="3" height="3" fill={i === 0 ? '#ffffff' : '#e8ecf8'} />
+      ))}
+      <rect x="2" y="9" width="6" height="2" fill="#f8d040" />
+      <rect x="5" y="8" width="2" height="6" fill="#f8d040" />
+      <rect x="2" y="12" width="3" height="3" fill="#8c5830" />
+    </svg>
+  );
+  const RunIcon = () => (
+    <svg viewBox="0 0 16 16" width="22" height="22" shapeRendering="crispEdges" aria-hidden="true">
+      <rect x="1" y="6" width="9" height="4" fill="#ffffff" />
+      <rect x="9" y="3" width="2" height="10" fill="#ffffff" />
+      <rect x="11" y="4" width="2" height="8" fill="#ffffff" />
+      <rect x="13" y="6" width="2" height="4" fill="#ffffff" />
+    </svg>
+  );
+
   return (
     <div
-      className={`relative w-full h-full flex flex-col justify-between overflow-hidden bg-slate-950 select-none ${
+      className={`relative w-full h-full flex flex-col overflow-hidden bg-[#0a0e1a] select-none ${
         cameraShake ? 'translate-x-1 -translate-y-1' : ''
       }`}
     >
-      {/* --- TOP BATTLEFIELD SCREEN WITH HIGH-FIDELITY GEN 4 BACKDROP --- */}
-      <div className="relative flex-1 w-full overflow-hidden border-b-4 border-slate-700">
-        {/* Authentic Gen 4 Battle Stage Backdrop Image */}
+      {/* --- BATTLEFIELD --- */}
+      <div className="relative flex-1 min-h-0 w-full overflow-hidden">
         <img
           src={bgImageSrc}
           alt="Battle Stage"
           className="absolute inset-0 w-full h-full object-cover pixelated pointer-events-none"
-          referrerPolicy="no-referrer"
         />
 
-        {/* --- OPPONENT HP BOX (TOP-LEFT GEN 4 FRAME) --- */}
-        <div className="absolute top-3 left-3 z-20 bg-slate-900/95 text-white rounded-lg p-2.5 border-2 border-slate-300 shadow-2xl w-60">
-          <div className="flex justify-between items-baseline mb-1">
-            <span className="font-bold text-sm tracking-wide text-slate-100 font-pixel flex items-center gap-1.5">
+        {/* Opponent status panel */}
+        <div className="pxui-frame absolute top-2 left-2 z-20 px-4 pt-3 pb-3"
+          style={{ width: 'min(60%, 240px)' }}>
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="pxui-label text-[15px] font-bold truncate flex items-center gap-1.5">
               {!isTrainerBattle && (
-                <img
-                  src={getPixelIconDataUrl('pokeball')}
-                  alt="Wild"
-                  className="w-3.5 h-3.5 object-contain pixelated opacity-80"
-                />
+                <img src={getPixelIconDataUrl('pokeball')} alt="야생" className="w-3.5 h-3.5 pixelated" />
               )}
               {enemyPokemon.koreanName}
             </span>
-            <span className="text-xs text-amber-300 font-mono font-bold">Lv.{enemyPokemon.level}</span>
+            <span className="pxui-label text-[12px] font-bold text-[#f8d878] shrink-0">Lv.{enemyPokemon.level}</span>
           </div>
-          {/* HP Bar */}
-          <div className="flex items-center gap-1.5 bg-slate-950 rounded px-1.5 py-1 border border-slate-700">
-            <span className="text-[10px] font-bold text-amber-400">HP</span>
-            <div className="flex-1 bg-slate-700 h-2.5 rounded-full overflow-hidden p-0.5">
+          <div className="flex items-center gap-2 mt-2">
+            <span className="pxui-tag">HP</span>
+            <div className="pxui-bar flex-1">
               <div
-                className={`h-full rounded-full transition-all duration-500 ${getHpBarColor(
-                  enemyPokemon.currentHp,
-                  enemyPokemon.maxHp
-                )}`}
-                style={{ width: `${Math.max(0, (enemyPokemon.currentHp / enemyPokemon.maxHp) * 100)}%` }}
+                className="fill"
+                style={{
+                  width: pct(enemyPokemon.currentHp, enemyPokemon.maxHp),
+                  background: hpFillColor(enemyPokemon.currentHp, enemyPokemon.maxHp),
+                }}
               />
             </div>
           </div>
           {enemyPokemon.status && (
-            <span className="inline-block mt-1 text-[9px] bg-red-600 text-white px-1.5 py-0.5 rounded font-bold uppercase">
-              {enemyPokemon.status}
-            </span>
+            <span className="pxui-tag inline-block mt-2 !bg-[#e84838] !text-white uppercase">{enemyPokemon.status}</span>
           )}
         </div>
 
         {/* --- OPPONENT POKEMON SPRITE (ANCHORED ON UPPER-RIGHT PLATFORM RING) --- */}
         <div className="absolute right-[21%] bottom-[25%] z-10 flex flex-col items-center pointer-events-none">
+          {/* Platform drawn with the sprite so they always line up, whatever the screen ratio */}
+          <img src={platformSrc} alt="" className="absolute left-1/2 -translate-x-1/2 -bottom-2 w-48 max-w-none pixelated -z-10" />
           <div
             className={`transition-all duration-200 ${
               enemyHitFlash ? 'brightness-200 contrast-200 scale-95' : ''
@@ -559,7 +590,8 @@ export const BattleScreen: React.FC<BattleScreenProps> = ({
         </div>
 
         {/* --- PLAYER POKEMON SPRITE (ANCHORED ON LOWER-LEFT PLATFORM RING) --- */}
-        <div className="absolute left-[22%] bottom-[4%] z-10 flex flex-col items-center pointer-events-none">
+        <div className="absolute left-[6%] bottom-[4%] z-10 flex flex-col items-center pointer-events-none">
+          <img src={platformSrc} alt="" className="absolute left-1/2 -translate-x-1/2 -bottom-6 w-60 max-w-none pixelated -z-10" />
           <div
             className={`transition-all duration-200 ${
               playerHitFlash ? 'brightness-200 contrast-200 scale-95' : ''
@@ -575,43 +607,43 @@ export const BattleScreen: React.FC<BattleScreenProps> = ({
           </div>
         </div>
 
-        {/* --- PLAYER HP BOX & EXP BAR (BOTTOM-RIGHT GEN 4 FRAME) --- */}
-        <div className="absolute bottom-3 right-3 z-20 bg-slate-900/95 text-white rounded-lg p-3 border-2 border-slate-300 shadow-2xl w-64">
-          <div className="flex justify-between items-baseline mb-1">
-            <span className="font-bold text-sm tracking-wide text-slate-100 font-pixel">
-              {playerPokemon.koreanName}
-            </span>
-            <span className="text-xs text-amber-300 font-mono font-bold">Lv.{playerPokemon.level}</span>
+        {/* Player status panel */}
+        <div className="pxui-frame absolute bottom-2 right-2 z-20 px-4 pt-3 pb-2.5"
+          style={{ width: 'min(56%, 250px)' }}>
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="pxui-label text-[15px] font-bold truncate">{playerPokemon.koreanName}</span>
+            <span className="pxui-label text-[12px] font-bold text-[#f8d878] shrink-0">Lv.{playerPokemon.level}</span>
           </div>
-          {/* HP Bar */}
-          <div className="flex items-center gap-1.5 bg-slate-950 rounded px-1.5 py-1 border border-slate-700">
-            <span className="text-[10px] font-bold text-amber-400">HP</span>
-            <div className="flex-1 bg-slate-700 h-2.5 rounded-full overflow-hidden p-0.5">
+          <div className="flex items-center gap-2 mt-2">
+            <span className="pxui-tag">HP</span>
+            <div className="pxui-bar flex-1">
               <div
-                className={`h-full rounded-full transition-all duration-500 ${getHpBarColor(
-                  playerPokemon.currentHp,
-                  playerPokemon.maxHp
-                )}`}
-                style={{ width: `${Math.max(0, (playerPokemon.currentHp / playerPokemon.maxHp) * 100)}%` }}
+                className="fill"
+                style={{
+                  width: pct(playerPokemon.currentHp, playerPokemon.maxHp),
+                  background: hpFillColor(playerPokemon.currentHp, playerPokemon.maxHp),
+                }}
               />
             </div>
           </div>
-          {/* Numerical HP Readout */}
-          <div className="text-right text-[11px] font-mono mt-0.5 font-bold tabular-nums text-slate-200">
-            {playerPokemon.currentHp} / {playerPokemon.maxHp}
+          <div className="flex items-center justify-between mt-1.5">
+            {playerPokemon.status ? (
+              <span className="pxui-tag !bg-[#e84838] !text-white uppercase">{playerPokemon.status}</span>
+            ) : (
+              <span />
+            )}
+            <span className="pxui-label text-[14px] font-bold tabular-nums">
+              {Math.max(0, playerPokemon.currentHp)}
+              <span className="text-[#9aa4c8]"> / </span>
+              {playerPokemon.maxHp}
+            </span>
           </div>
-          {/* EXP Bar */}
-          <div className="flex items-center gap-1.5 mt-1 bg-slate-950 rounded px-1.5 py-0.5 border border-slate-700">
-            <span className="text-[9px] font-bold text-cyan-400">EXP</span>
-            <div className="flex-1 bg-slate-700 h-1.5 rounded-full overflow-hidden">
+          <div className="flex items-center gap-2 mt-1.5">
+            <span className="pxui-tag !bg-[#58b8f0]">EXP</span>
+            <div className="pxui-bar thin flex-1">
               <div
-                className="bg-cyan-400 h-full transition-all duration-300"
-                style={{
-                  width: `${Math.min(
-                    100,
-                    Math.max(0, (playerPokemon.exp / playerPokemon.expToNextLevel) * 100)
-                  )}%`,
-                }}
+                className="fill"
+                style={{ width: pct(playerPokemon.exp, playerPokemon.expToNextLevel), background: '#58b8f0' }}
               />
             </div>
           </div>
@@ -621,7 +653,7 @@ export const BattleScreen: React.FC<BattleScreenProps> = ({
         {activeAttackFx && (
           <div
             className={`absolute z-30 pointer-events-none flex items-center justify-center ${
-              activeAttackFx.target === 'enemy' ? 'right-[24%] bottom-[32%]' : 'left-[26%] bottom-[12%]'
+              activeAttackFx.target === 'enemy' ? 'right-[24%] bottom-[32%]' : 'left-[12%] bottom-[12%]'
             }`}
           >
             <svg
@@ -679,124 +711,107 @@ export const BattleScreen: React.FC<BattleScreenProps> = ({
         )}
       </div>
 
-      {/* --- BOTTOM DS COMMAND & TOUCHSCREEN CONTROL CONSOLE --- */}
-      <div className="h-44 w-full bg-slate-900 border-t-4 border-slate-700 p-2 flex flex-col justify-between">
-        {/* Dialog / Message readout */}
-        <div className="dialog-box-gen4 text-slate-900 rounded p-2.5 min-h-[52px] flex items-center font-pixel text-xs leading-relaxed border-2 border-slate-400 shadow-inner">
-          <p>{dialogText}</p>
+      {/* --- COMMAND CONSOLE --- */}
+      <div className="pxui-console w-full shrink-0 p-2.5 flex flex-col gap-2">
+        {/* Message window — in sub-menus it shows the prompt and a back button, so the layout never jumps */}
+        <div className="pxui-frame pl-4 pr-3 py-3 min-h-[62px] flex items-center gap-2">
+          <p className="pxui-label text-[15px] leading-snug flex-1">{consoleTitle ?? dialogText}</p>
+          {menuMode === 'message' && <span className="pxui-cursor text-[#f8d878] text-xs self-end">▼</span>}
+          {consoleTitle && (
+            <button onClick={goBack} className="pxui-btn pxui-btn-sm pxui-label shrink-0">
+              ◀ 뒤로
+            </button>
+          )}
         </div>
 
-        {/* Menu Buttons depending on Mode */}
-        {menuMode === 'main' && (
-          <div className="grid grid-cols-2 gap-2 mt-2">
-            <button
-              onClick={() => {
-                sound.playConfirm();
-                setMenuMode('moves');
-              }}
-              className="bg-red-600 hover:bg-red-500 active:scale-95 text-white font-bold py-2.5 px-3 rounded-lg border-2 border-red-400 shadow-md flex items-center justify-center gap-2 transition"
-            >
-              <img
-                src={getPixelIconDataUrl('pokeball')}
-                alt="Fight"
-                className="w-4 h-4 object-contain pixelated"
-              />
-              <span className="text-sm tracking-wider font-pixel">싸운다 (FIGHT)</span>
-            </button>
-            <button
-              onClick={() => {
-                sound.playConfirm();
-                setMenuMode('bag');
-              }}
-              className="bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold py-2.5 px-3 rounded-lg border-2 border-amber-400 shadow-md flex items-center justify-center gap-2 transition"
-            >
-              <img
-                src={getPixelIconDataUrl('potion')}
-                alt="Bag"
-                className="w-4 h-4 object-contain pixelated"
-              />
-              <span className="text-sm tracking-wider font-pixel">가방 (BAG)</span>
-            </button>
-            <button
-              onClick={() => {
-                sound.playConfirm();
-                setMenuMode('party');
-              }}
-              className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold py-2.5 px-3 rounded-lg border-2 border-emerald-400 shadow-md flex items-center justify-center gap-2 transition"
-            >
-              <img
-                src={getPixelIconDataUrl('greatball')}
-                alt="Party"
-                className="w-4 h-4 object-contain pixelated"
-              />
-              <span className="text-sm tracking-wider font-pixel">포켓몬 (PKMN)</span>
-            </button>
-            <button
-              onClick={handleRun}
-              className="bg-sky-600 hover:bg-sky-500 active:scale-95 text-white font-bold py-2.5 px-3 rounded-lg border-2 border-sky-400 shadow-md flex items-center justify-center gap-2 transition"
-            >
-              <span className="text-sm tracking-wider font-pixel">▶ 도망친다 (RUN)</span>
-            </button>
-          </div>
-        )}
-
-        {/* Move Selector (4 Moves) */}
-        {menuMode === 'moves' && (
-          <div className="relative mt-2">
+        {/* Fixed-height command area so the battlefield never jumps between menus */}
+        <div className="h-[124px]">
+          {/* Main commands */}
+          {menuMode === 'main' && (
             <div className="grid grid-cols-2 gap-2">
-              {playerPokemon.moves.map((move, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleSelectMove(move)}
-                  disabled={move.pp <= 0}
-                  className={`p-2 rounded-lg border-2 text-left flex flex-col justify-between transition ${
-                    move.pp > 0
-                      ? 'bg-slate-800 hover:bg-slate-700 border-slate-600 text-white cursor-pointer active:scale-95'
-                      : 'bg-slate-900 border-slate-800 text-slate-500 cursor-not-allowed opacity-60'
-                  }`}
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="font-bold text-xs">{move.name}</span>
-                    <span
-                      className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${getTypeBadgeColor(
-                        move.type
-                      )}`}
-                    >
-                      {move.type}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center mt-1 text-[10px] font-mono text-slate-300">
-                    <span>
-                      위력 {move.power > 0 ? move.power : '-'} ·{' '}
-                      {move.category === 'physical'
-                        ? '물리'
-                        : move.category === 'special'
-                        ? '특수'
-                        : '변화'}
-                    </span>
-                    <span className={move.pp <= 3 ? 'text-red-400 font-bold' : ''}>
-                      PP {move.pp}/{move.maxPp}
-                    </span>
-                  </div>
-                </button>
-              ))}
+              <button
+                onClick={() => {
+                  sound.playConfirm();
+                  setMenuMode('moves');
+                }}
+                className="pxui-btn"
+                style={{ '--accent': '#f06048' } as React.CSSProperties}
+              >
+                <span className="chip">
+                  <SwordIcon />
+                </span>
+                <span className="pxui-label text-[17px] font-bold">싸운다</span>
+              </button>
+              <button
+                onClick={() => {
+                  sound.playConfirm();
+                  setMenuMode('bag');
+                }}
+                className="pxui-btn"
+                style={{ '--accent': '#f0b030' } as React.CSSProperties}
+              >
+                <span className="chip">
+                  <img src={getPixelIconDataUrl('potion')} alt="" className="w-6 h-6 pixelated" />
+                </span>
+                <span className="pxui-label text-[17px] font-bold">가방</span>
+              </button>
+              <button
+                onClick={() => {
+                  sound.playConfirm();
+                  setMenuMode('party');
+                }}
+                className="pxui-btn"
+                style={{ '--accent': '#48c078' } as React.CSSProperties}
+              >
+                <span className="chip">
+                  <img src={getPixelIconDataUrl('pokeball')} alt="" className="w-6 h-6 pixelated" />
+                </span>
+                <span className="pxui-label text-[17px] font-bold">포켓몬</span>
+              </button>
+              <button onClick={handleRun} className="pxui-btn" style={{ '--accent': '#58a0e8' } as React.CSSProperties}>
+                <span className="chip">
+                  <RunIcon />
+                </span>
+                <span className="pxui-label text-[17px] font-bold">도망친다</span>
+              </button>
             </div>
-            <button
-              onClick={() => {
-                sound.playCancel();
-                setMenuMode('main');
-              }}
-              className="absolute -top-11 right-0 text-xs bg-slate-700 text-slate-200 px-2.5 py-1 rounded border border-slate-500 hover:bg-slate-600"
-            >
-              뒤로 (Back)
-            </button>
-          </div>
-        )}
+          )}
 
-        {/* Bag Selector (Balls & Medicine) */}
-        {menuMode === 'bag' && (
-          <div className="relative mt-2 flex flex-col gap-1.5 overflow-y-auto max-h-24 pr-1">
+          {/* Move selector */}
+          {menuMode === 'moves' && (
             <div className="grid grid-cols-2 gap-2">
+              {playerPokemon.moves.map((move, idx) => {
+                const ti = typeInfo(move.type);
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => handleSelectMove(move)}
+                    disabled={move.pp <= 0}
+                    className="pxui-btn !flex-col !items-stretch !gap-1 !min-h-[58px]"
+                    style={{ '--accent': ti.color } as React.CSSProperties}
+                  >
+                    <span className="pxui-label text-[15px] font-bold truncate">{move.name}</span>
+                    <span className="flex items-center justify-between gap-1">
+                      <span className="pxui-tag !text-white" style={{ background: ti.color }}>
+                        {ti.ko}
+                      </span>
+                      <span
+                        className={`pxui-label text-[12px] tabular-nums ${
+                          move.pp <= Math.ceil(move.maxPp / 4) ? 'text-[#f87858]' : 'text-[#c8d0e8]'
+                        }`}
+                      >
+                        PP {move.pp}/{move.maxPp}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Bag */}
+          {menuMode === 'bag' && (
+            <div className="grid grid-cols-2 gap-2 max-h-full overflow-y-auto pr-0.5">
               {inventory
                 .filter((item) => (item.category === 'ball' || item.category === 'medicine') && item.count > 0)
                 .map((item) => (
@@ -806,69 +821,53 @@ export const BattleScreen: React.FC<BattleScreenProps> = ({
                       if (item.category === 'ball') handleThrowBall(item);
                       else handleUseMedicine(item);
                     }}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-left flex items-center justify-between text-xs text-white"
+                    className="pxui-btn !min-h-[48px] justify-between"
+                    style={{ '--accent': item.category === 'ball' ? '#f06048' : '#a070e0' } as React.CSSProperties}
                   >
-                    <div className="flex items-center gap-1.5">
-                      <span>{item.icon}</span>
-                      <span className="font-bold">{item.name}</span>
-                    </div>
-                    <span className="text-amber-400 font-mono font-bold">x{item.count}</span>
+                    <span className="pxui-label text-[14px] font-bold truncate flex items-center gap-1.5">
+                      {PIXEL_ICONS.includes(item.icon as PixelIcon) && (
+                        <img src={getPixelIconDataUrl(item.icon as PixelIcon)} alt="" className="w-5 h-5 pixelated shrink-0" />
+                      )}
+                      {item.name}
+                    </span>
+                    <span className="pxui-label text-[13px] text-[#f8d878] tabular-nums">×{item.count}</span>
                   </button>
                 ))}
             </div>
-            <button
-              onClick={() => {
-                sound.playCancel();
-                setMenuMode('main');
-              }}
-              className="absolute -top-11 right-0 text-xs bg-slate-700 text-slate-200 px-2.5 py-1 rounded border border-slate-500 hover:bg-slate-600"
-            >
-              뒤로 (Back)
-            </button>
-          </div>
-        )}
+          )}
 
-        {/* Party Selector (Switch Active Pokemon) */}
-        {menuMode === 'party' && (
-          <div className="relative mt-2 flex flex-col gap-1.5 overflow-y-auto max-h-24 pr-1">
-            <div className="grid grid-cols-2 gap-2">
-              {party.map((p) => (
-                <button
-                  key={p.uid}
-                  disabled={p.uid === playerPokemon.uid || p.isFainted || p.currentHp <= 0}
-                  onClick={() => handleSwitchPokemon(p)}
-                  className={`p-1.5 rounded-lg border text-left flex items-center justify-between text-xs ${
-                    p.uid === playerPokemon.uid
-                      ? 'bg-emerald-950 border-emerald-500 text-emerald-300'
-                      : p.currentHp > 0
-                      ? 'bg-slate-800 hover:bg-slate-700 border-slate-600 text-white'
-                      : 'bg-red-950/40 border-red-800 text-red-400 opacity-60'
-                  }`}
-                >
-                  <div>
-                    <div className="font-bold">{p.koreanName}</div>
-                    <div className="text-[10px] text-slate-400">Lv.{p.level}</div>
-                  </div>
-                  <div className="text-right text-[10px] font-mono">
-                    <div>
-                      {p.currentHp}/{p.maxHp} HP
-                    </div>
-                    {p.isFainted && <span className="text-red-500 font-bold">기절</span>}
-                  </div>
-                </button>
-              ))}
+          {/* Party */}
+          {menuMode === 'party' && (
+            <div className="grid grid-cols-2 gap-2 max-h-full overflow-y-auto pr-0.5">
+              {party.map((p) => {
+                const active = p.uid === playerPokemon.uid;
+                const fainted = p.isFainted || p.currentHp <= 0;
+                return (
+                  <button
+                    key={p.uid}
+                    disabled={active || fainted}
+                    onClick={() => handleSwitchPokemon(p)}
+                    className="pxui-btn !flex-col !items-stretch !gap-1 !min-h-[52px]"
+                    style={{ '--accent': active ? '#f8d878' : fainted ? '#5a6078' : '#48c078' } as React.CSSProperties}
+                  >
+                    <span className="flex items-baseline justify-between gap-1">
+                      <span className="pxui-label text-[14px] font-bold truncate">{p.koreanName}</span>
+                      <span className="pxui-label text-[11px] text-[#f8d878]">
+                        {active ? '전투 중' : fainted ? '기절' : `Lv.${p.level}`}
+                      </span>
+                    </span>
+                    <span className="pxui-bar thin w-full">
+                      <span
+                        className="fill block"
+                        style={{ width: pct(p.currentHp, p.maxHp), background: hpFillColor(p.currentHp, p.maxHp) }}
+                      />
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-            <button
-              onClick={() => {
-                sound.playCancel();
-                setMenuMode('main');
-              }}
-              className="absolute -top-11 right-0 text-xs bg-slate-700 text-slate-200 px-2.5 py-1 rounded border border-slate-500 hover:bg-slate-600"
-            >
-              뒤로 (Back)
-            </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
