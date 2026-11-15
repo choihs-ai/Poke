@@ -669,226 +669,328 @@ export function getTreeCanopyCanvas(hasTreeBelow = false, variant = 0): HTMLCanv
   return canvas;
 }
 
-// --- MULTI-TILE BUILDINGS (one shared construction kit so every building matches) ---
-type Ramp = { dark: string; mid: string; light: string; hi: string };
-const B_OUT = '#2a2228';
-
-function bRect(ctx: CanvasRenderingContext2D, c: string, x: number, y: number, w: number, h: number) {
-  ctx.fillStyle = c;
-  ctx.fillRect(x, y, w, h);
-}
-
-function drawGableRoof(ctx: CanvasRenderingContext2D, w: number, eaveY: number, r: Ramp) {
-  bRect(ctx, B_OUT, 0, 2, w, eaveY);
-  bRect(ctx, r.mid, 1, 3, w - 2, eaveY - 2);
-  // sunlit ridge
-  bRect(ctx, r.hi, 1, 3, w - 2, 1);
-  bRect(ctx, r.light, 1, 4, w - 2, 3);
-  // shingle rows with staggered joints
-  for (let y = 9, row = 0; y < eaveY - 4; y += 5, row++) {
-    bRect(ctx, r.dark, 1, y, w - 2, 1);
-    bRect(ctx, r.light, 1, y + 1, w - 2, 1);
-    for (let x = 3 + (row % 2) * 4; x < w - 2; x += 8) bRect(ctx, r.dark, x, y + 1, 1, 3);
-  }
-  // side volume + eave lip
-  bRect(ctx, r.light, 1, 3, 1, eaveY - 2);
-  bRect(ctx, r.dark, w - 3, 3, 2, eaveY - 2);
-  bRect(ctx, r.light, 1, eaveY - 4, w - 2, 1);
-  bRect(ctx, r.dark, 1, eaveY - 3, w - 2, 2);
-}
-
-function drawFlatRoof(ctx: CanvasRenderingContext2D, w: number, eaveY: number, r: Ramp) {
-  bRect(ctx, B_OUT, 0, 2, w, eaveY);
-  bRect(ctx, r.light, 1, 3, w - 2, eaveY - 2);
-  bRect(ctx, r.hi, 1, 3, w - 2, 1);
-  bRect(ctx, r.dark, w - 3, 4, 2, eaveY - 3);
-  bRect(ctx, r.dark, 1, eaveY - 3, w - 2, 2);
-  // recessed panel with seams
-  bRect(ctx, r.dark, 5, 7, w - 10, eaveY - 14);
-  bRect(ctx, r.mid, 6, 8, w - 12, eaveY - 16);
-  for (let x = 13; x < w - 8; x += 8) bRect(ctx, r.dark, x, 8, 1, eaveY - 16);
-  bRect(ctx, r.light, 6, 8, w - 12, 1);
-}
-
-function drawWall(ctx: CanvasRenderingContext2D, w: number, h: number, eaveY: number, wall: Ramp) {
-  bRect(ctx, B_OUT, 2, eaveY - 1, w - 4, h - eaveY + 1);
-  bRect(ctx, wall.mid, 3, eaveY, w - 6, h - eaveY - 1);
-  bRect(ctx, wall.dark, 3, eaveY, w - 6, 3); // shadow under the eave
-  bRect(ctx, wall.light, 3, eaveY + 3, 1, h - eaveY - 6);
-  bRect(ctx, wall.dark, w - 5, eaveY + 3, 2, h - eaveY - 6);
-  bRect(ctx, wall.dark, 3, h - 4, w - 6, 3); // foundation
-  bRect(ctx, B_OUT, 3, h - 4, w - 6, 1);
-}
-
-function drawWindow(ctx: CanvasRenderingContext2D, x: number, y: number, ww: number, hh: number) {
-  bRect(ctx, B_OUT, x, y, ww, hh);
-  bRect(ctx, '#f4f4f0', x + 1, y + 1, ww - 2, hh - 2);
-  bRect(ctx, '#5890c8', x + 2, y + 2, ww - 4, hh - 4);
-  bRect(ctx, '#88c0f0', x + 2, y + 2, ww - 4, 2);
-  bRect(ctx, '#d0ecff', x + 3, y + 3, 2, 1);
-  if (ww > 9) bRect(ctx, '#f4f4f0', x + Math.floor(ww / 2), y + 1, 1, hh - 2);
-  bRect(ctx, '#a8a8b0', x, y + hh, ww, 1); // sill
-}
-
-function drawGlassDoor(ctx: CanvasRenderingContext2D, cx: number, h: number, frame = '#9098a8') {
-  bRect(ctx, B_OUT, cx - 11, h - 27, 22, 24);
-  bRect(ctx, frame, cx - 10, h - 26, 20, 22);
-  bRect(ctx, '#3880c8', cx - 9, h - 25, 8, 21);
-  bRect(ctx, '#3880c8', cx + 1, h - 25, 8, 21);
-  bRect(ctx, '#78c0f0', cx - 9, h - 25, 8, 3);
-  bRect(ctx, '#78c0f0', cx + 1, h - 25, 8, 3);
-  bRect(ctx, '#c8ecff', cx - 7, h - 21, 1, 8);
-  bRect(ctx, '#c8ecff', cx + 3, h - 21, 1, 8);
-  bRect(ctx, '#d8d8d0', cx - 12, h - 3, 24, 2); // doormat step
-}
-
-function drawWoodDoor(ctx: CanvasRenderingContext2D, cx: number, h: number) {
-  bRect(ctx, B_OUT, cx - 8, h - 26, 16, 23);
-  bRect(ctx, '#8c5830', cx - 7, h - 25, 14, 22);
-  bRect(ctx, '#a87040', cx - 6, h - 24, 5, 9);
-  bRect(ctx, '#a87040', cx + 1, h - 24, 5, 9);
-  bRect(ctx, '#a87040', cx - 6, h - 13, 5, 9);
-  bRect(ctx, '#a87040', cx + 1, h - 13, 5, 9);
-  bRect(ctx, '#f8d050', cx + 4, h - 15, 2, 2);
-  bRect(ctx, '#c8b8a0', cx - 10, h - 3, 20, 2);
-}
-
-function drawPokeballEmblem(ctx: CanvasRenderingContext2D, cx: number, cy: number) {
-  const m = [
-    '...kkkkk...',
-    '.kkRRRRRkk.',
-    'kRRHRRRRRRk',
-    'kRRRRRRRRRk',
-    'kkkkkwwkkkk',
-    'kWWWkwwkWWk',
-    'kWWWWkkWWWk',
-    '.kkWWWWWkk.',
-    '...kkkkk...',
-  ];
-  drawPixelMatrix(ctx, m, { k: B_OUT, R: '#e83838', H: '#ff9090', w: '#ffffff', W: '#f0f0f0' }, cx - 5, cy - 4);
-}
-
+// --- MULTI-TILE 3D-PROJECTED GEN 4 BUILDINGS (Matching IMG_1322, IMG_1323 & IMG_1326!) ---
 export function getBuildingStructureCanvas(
   kind: 'house' | 'lab' | 'pokecenter' | 'mart' | 'gym',
   widthTiles: number,
-  heightTiles: number,
-  variant = 0
+  heightTiles: number
 ): HTMLCanvasElement {
   const w = widthTiles * 32;
   const h = heightTiles * 32 + 16;
-  const v = kind === 'house' ? ((variant % 3) + 3) % 3 : 0;
-  const key = `ds_bldg_v6_${kind}_${w}x${h}_${v}`;
+  const key = `ds_bldg_v5_${kind}_${w}x${h}`;
   if (spriteCache[key]) return spriteCache[key];
 
   const [canvas, ctx] = createPixelCanvas(w, h);
-  const eaveY = h - 30;
-  const cx = Math.floor(widthTiles / 2) * 32 + 16; // door is always on the middle tile
-  const whiteWall: Ramp = { dark: '#b8bcc8', mid: '#eceef2', light: '#ffffff', hi: '#ffffff' };
 
-  if (kind === 'house') {
-    const roofs: Ramp[] = [
-      { dark: '#8c2c24', mid: '#c4483a', light: '#dc6a54', hi: '#f09878' },
-      { dark: '#2c4c8c', mid: '#4870c0', light: '#6890d8', hi: '#98b8f0' },
-      { dark: '#2c6c40', mid: '#3c9058', light: '#58b070', hi: '#88d098' },
-    ];
-    const wall: Ramp = { dark: '#c4b494', mid: '#f0e6d0', light: '#fff8ec', hi: '#ffffff' };
-    drawWall(ctx, w, h, eaveY, wall);
-    drawGableRoof(ctx, w, eaveY, roofs[v]);
-    // brick chimney
-    const chx = w - 26;
-    bRect(ctx, B_OUT, chx, 0, 10, 14);
-    bRect(ctx, '#b86848', chx + 1, 1, 8, 12);
-    bRect(ctx, '#d88868', chx + 1, 1, 8, 2);
-    bRect(ctx, '#8c4830', chx + 1, 6, 8, 1);
-    drawWindow(ctx, 10, eaveY + 7, 14, 12);
-    drawWindow(ctx, w - 24, eaveY + 7, 14, 12);
-    drawWoodDoor(ctx, cx, h);
-  } else if (kind === 'pokecenter') {
-    const roof: Ramp = { dark: '#a02828', mid: '#d83838', light: '#f05848', hi: '#ff9080' };
-    drawWall(ctx, w, h, eaveY, whiteWall);
-    drawFlatRoof(ctx, w, eaveY, roof);
-    bRect(ctx, '#ffffff', 1, eaveY - 7, w - 2, 3); // white band
-    bRect(ctx, '#d0d0d8', 1, eaveY - 4, w - 2, 1);
-    // emblem plate on the roof
-    bRect(ctx, B_OUT, cx - 10, 10, 20, 15);
-    bRect(ctx, '#ffffff', cx - 9, 11, 18, 13);
-    drawPokeballEmblem(ctx, cx, 17);
-    drawWindow(ctx, 8, eaveY + 6, 16, 14);
-    drawWindow(ctx, w - 24, eaveY + 6, 16, 14);
-    drawGlassDoor(ctx, cx, h, '#e05050');
+  // Soft 2.5D ground drop shadow
+  ctx.fillStyle = 'rgba(16, 40, 20, 0.32)';
+  ctx.fillRect(2, h - 7, w - 2, 7);
+
+  if (kind === 'pokecenter') {
+    // Authentic Gen 4 PokéCenter (Matching IMG_1326.jpeg!)
+    // Beveled octagonal silhouette
+    ctx.fillStyle = '#241814';
+    ctx.fillRect(6, 4, w - 12, h - 8);
+    ctx.fillRect(2, 10, w - 4, h - 16);
+
+    // Lower curved bay wall & grey-blue corner windows
+    ctx.fillStyle = '#dce4ec';
+    ctx.fillRect(4, h - 30, w - 8, 24);
+    ctx.fillStyle = '#586878';
+    ctx.fillRect(4, h - 28, 18, 20);
+    ctx.fillRect(w - 22, h - 28, 18, 20);
+    ctx.fillStyle = '#78b8e8';
+    ctx.fillRect(6, h - 25, 12, 14);
+    ctx.fillRect(w - 18, h - 25, 12, 14);
+    ctx.fillStyle = '#b8e8ff';
+    ctx.fillRect(8, h - 24, 4, 12);
+    ctx.fillRect(w - 14, h - 24, 4, 12);
+
+    // Vermilion-orange 3D pitched roof (#e05818 / #f07820)
+    ctx.fillStyle = '#c84010';
+    ctx.fillRect(4, 10, w - 8, h - 38);
+    ctx.fillStyle = '#e86418';
+    ctx.fillRect(6, 8, w - 12, h - 42);
+    ctx.fillStyle = '#f88428';
+    ctx.fillRect(10, 6, w - 20, 12);
+
+    // Vertical roof panel seams
+    ctx.fillStyle = '#b8380c';
+    for (let x = 12; x < w - 10; x += 10) {
+      ctx.fillRect(x, 8, 2, h - 42);
+    }
+
+    // White diagonal corner stripes on lower roof (Exact match to IMG_1326!)
+    ctx.fillStyle = '#f8f8fc';
+    ctx.fillRect(6, h - 34, w - 12, 3);
+    ctx.fillRect(8, h - 38, 14, 3);
+    ctx.fillRect(w - 22, h - 38, 14, 3);
+
+    // Central raised cylindrical skylight vault on top of roof (IMG_1326!)
+    const cx = Math.floor(w / 2);
+    ctx.fillStyle = '#482010';
+    ctx.fillRect(cx - 13, 2, 26, 26);
+    ctx.fillStyle = '#d87018';
+    ctx.fillRect(cx - 11, 4, 22, 22);
+    ctx.fillStyle = '#f8a030';
+    ctx.fillRect(cx - 7, 4, 14, 20);
+    ctx.fillStyle = '#ffd068';
+    ctx.fillRect(cx - 3, 4, 6, 18);
+
+    // White half-Pokéball emblem above front door (IMG_1326!)
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(cx - 9, h - 43, 18, 11);
+    ctx.fillRect(cx - 7, h - 45, 14, 2);
+    ctx.fillStyle = '#d84818';
+    ctx.fillRect(cx - 6, h - 40, 12, 3);
+    ctx.fillRect(cx - 3, h - 42, 6, 7);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(cx - 2, h - 40, 4, 3);
+
+    // Glowing cyan automatic entrance doors
+    ctx.fillStyle = '#182838';
+    ctx.fillRect(cx - 12, h - 28, 24, 24);
+    ctx.fillStyle = '#48a8e8';
+    ctx.fillRect(cx - 10, h - 26, 20, 22);
+    ctx.fillStyle = '#a8e8ff';
+    ctx.fillRect(cx - 8, h - 24, 7, 18);
+    ctx.fillRect(cx + 1, h - 24, 7, 18);
   } else if (kind === 'mart') {
-    const roof: Ramp = { dark: '#20509c', mid: '#3070d0', light: '#5098e8', hi: '#90c8ff' };
-    drawWall(ctx, w, h, eaveY, whiteWall);
-    drawFlatRoof(ctx, w, eaveY, roof);
-    bRect(ctx, '#ffffff', 1, eaveY - 7, w - 2, 3);
-    bRect(ctx, '#d0d0d8', 1, eaveY - 4, w - 2, 1);
-    // shop signboard
-    bRect(ctx, B_OUT, cx - 18, 11, 36, 13);
-    bRect(ctx, '#ffffff', cx - 17, 12, 34, 11);
-    bRect(ctx, '#3070d0', cx - 14, 14, 28, 2);
-    bRect(ctx, '#3070d0', cx - 14, 18, 20, 2);
-    drawWindow(ctx, 8, eaveY + 6, 16, 14);
-    drawWindow(ctx, w - 24, eaveY + 6, 16, 14);
-    drawGlassDoor(ctx, cx, h, '#4878c8');
+    // Authentic Gen 4 PokéMart
+    ctx.fillStyle = '#182434';
+    ctx.fillRect(4, 6, w - 8, h - 10);
+    ctx.fillRect(2, 10, w - 4, h - 16);
+
+    // Clean white-grey lower facade
+    ctx.fillStyle = '#e8ecf0';
+    ctx.fillRect(4, h - 30, w - 8, 24);
+    ctx.fillStyle = '#98a4b0';
+    ctx.fillRect(4, h - 10, w - 8, 4);
+
+    // Stepped royal-blue 3D roof
+    ctx.fillStyle = '#1c5098';
+    ctx.fillRect(4, 8, w - 8, h - 36);
+    ctx.fillStyle = '#3070c8';
+    ctx.fillRect(6, 8, w - 12, h - 40);
+    ctx.fillStyle = '#5098f0';
+    ctx.fillRect(8, 8, w - 16, 10);
+
+    // Roof seam ribs
+    ctx.fillStyle = '#184480';
+    for (let x = 12; x < w - 10; x += 10) {
+      ctx.fillRect(x, 10, 2, h - 42);
+    }
+
+    // White roof trim band
+    ctx.fillStyle = '#f8fcff';
+    ctx.fillRect(4, h - 33, w - 8, 3);
+
+    // Left display window
+    ctx.fillStyle = '#284060';
+    ctx.fillRect(8, h - 25, 24, 14);
+    ctx.fillStyle = '#78c8f8';
+    ctx.fillRect(10, h - 23, 20, 10);
+    ctx.fillStyle = '#c8f0ff';
+    ctx.fillRect(12, h - 22, 6, 8);
+
+    // Entrance door & blue MART sign
+    const cx = Math.floor(w / 2) + 6;
+    ctx.fillStyle = '#183868';
+    ctx.fillRect(cx - 11, h - 27, 22, 23);
+    ctx.fillStyle = '#48a0e8';
+    ctx.fillRect(cx - 9, h - 25, 18, 21);
+    ctx.fillStyle = '#a8e8ff';
+    ctx.fillRect(cx - 7, h - 23, 6, 17);
+
+    // Blue & white MART sign plaque
+    ctx.fillStyle = '#183868';
+    ctx.fillRect(cx - 12, h - 39, 24, 11);
+    ctx.fillStyle = '#f8fcff';
+    ctx.fillRect(cx - 10, h - 37, 20, 7);
+    ctx.fillStyle = '#2868c8';
+    ctx.fillRect(cx - 8, h - 35, 16, 3);
+  } else if (kind === 'house') {
+    // Authentic Gen 4 Town House with Golden Shingled Roof & Timber-Framed Triangular Gable (Exact match to IMG_1322!)
+    ctx.fillStyle = '#282018';
+    ctx.fillRect(4, 4, w - 8, h - 8);
+    ctx.fillRect(2, 8, w - 4, h - 14);
+
+    // Warm cream-stone lower wall & slate base
+    ctx.fillStyle = '#e8e4d8';
+    ctx.fillRect(4, h - 30, w - 8, 24);
+    ctx.fillStyle = '#b8b2a4';
+    ctx.fillRect(4, h - 30, w - 8, 3);
+    ctx.fillStyle = '#8c887c';
+    ctx.fillRect(4, h - 10, w - 8, 4);
+
+    // Golden-ochre 3D pitched roof (#f8d038 -> #e0a818 -> #b87c10)
+    ctx.fillStyle = '#98640c';
+    ctx.fillRect(3, 6, w - 6, h - 34);
+    ctx.fillStyle = '#d89c18';
+    ctx.fillRect(5, 6, w - 10, h - 36);
+    ctx.fillStyle = '#f0bc28';
+    ctx.fillRect(6, 7, w - 12, h - 40);
+    ctx.fillStyle = '#ffe058';
+    ctx.fillRect(8, 7, w - 16, 6);
+
+    // Shingle tile texture ridges
+    ctx.fillStyle = '#b87c10';
+    for (let x = 10; x < w - 8; x += 8) {
+      ctx.fillRect(x, 8, 2, h - 40);
+    }
+    for (let y = 14; y < h - 34; y += 6) {
+      ctx.fillRect(5, y, w - 10, 1);
+    }
+
+    // Crisp white & brown eaves overhang
+    ctx.fillStyle = '#583c20';
+    ctx.fillRect(3, h - 33, w - 6, 4);
+    ctx.fillStyle = '#f4f0e4';
+    ctx.fillRect(4, h - 32, w - 8, 2);
+
+    // Door position (centered on 3-tile house, or aligned to tile 2 on 4-tile house)
+    const doorCenterX = widthTiles === 4 ? 2 * 32 + 16 : Math.floor(w / 2);
+
+    // Triangular Timber-Framed Gable above the door (Exact match to IMG_1322 top-left house!)
+    for (let step = 0; step < 14; step++) {
+      const gw = 38 - step * 2;
+      const gx = doorCenterX - Math.floor(gw / 2);
+      const gy = h - 31 - step;
+      ctx.fillStyle = '#483018';
+      ctx.fillRect(gx - 3, gy, gw + 6, 2);
+      ctx.fillStyle = '#785430';
+      ctx.fillRect(gx - 1, gy, gw + 2, 2);
+      ctx.fillStyle = '#f4f0e4';
+      ctx.fillRect(gx + 1, gy + 1, gw - 2, 2);
+    }
+    // Timber cross-beams inside the triangular gable (IMG_1322!)
+    ctx.fillStyle = '#684828';
+    ctx.fillRect(doorCenterX - 2, h - 43, 4, 12);
+    ctx.fillRect(doorCenterX - 11, h - 35, 22, 3);
+
+    // Deep-set blue wooden entrance door
+    ctx.fillStyle = '#1c3048';
+    ctx.fillRect(doorCenterX - 10, h - 27, 20, 23);
+    ctx.fillStyle = '#3870b0';
+    ctx.fillRect(doorCenterX - 8, h - 25, 16, 21);
+    ctx.fillStyle = '#285488';
+    ctx.fillRect(doorCenterX - 6, h - 14, 12, 9);
+    ctx.fillStyle = '#88c8ff';
+    ctx.fillRect(doorCenterX - 6, h - 23, 12, 7);
+    ctx.fillStyle = '#d8f0ff';
+    ctx.fillRect(doorCenterX - 5, h - 22, 4, 5);
+
+    // White-framed windows with blue glass & window boxes
+    const winPositions = widthTiles === 4 ? [10, 38, w - 26] : [8, w - 26];
+    for (const wx of winPositions) {
+      if (Math.abs(wx + 9 - doorCenterX) < 18) continue;
+      ctx.fillStyle = '#283850';
+      ctx.fillRect(wx, h - 25, 18, 15);
+      ctx.fillStyle = '#f8f8fc';
+      ctx.fillRect(wx + 1, h - 24, 16, 13);
+      ctx.fillStyle = '#5088c8';
+      ctx.fillRect(wx + 3, h - 22, 12, 9);
+      ctx.fillStyle = '#98d0ff';
+      ctx.fillRect(wx + 4, h - 21, 4, 7);
+      // Window sill
+      ctx.fillStyle = '#c8c4b8';
+      ctx.fillRect(wx, h - 11, 18, 2);
+    }
   } else if (kind === 'lab') {
-    const roof: Ramp = { dark: '#505868', mid: '#7c8494', light: '#a0a8b8', hi: '#c8d0e0' };
-    const wall: Ramp = { dark: '#bcae90', mid: '#e8dcc0', light: '#f8f0dc', hi: '#ffffff' };
-    drawWall(ctx, w, h, eaveY, wall);
-    drawFlatRoof(ctx, w, eaveY, roof);
-    // skylights
-    for (let x = 10; x < w - 20; x += 22) {
-      bRect(ctx, B_OUT, x, 11, 16, 9);
-      bRect(ctx, '#68a8d8', x + 1, 12, 14, 7);
-      bRect(ctx, '#b8e0ff', x + 2, 13, 5, 2);
+    // Authentic Gen 4 Prof. Rowan Research Lab (Matching IMG_1322 right & IMG_1323 right!)
+    ctx.fillStyle = '#241c18';
+    ctx.fillRect(2, 4, w - 4, h - 8);
+
+    // Raised 3D terracotta-brown parapet frame around roof (Exact match to IMG_1323 right building!)
+    ctx.fillStyle = '#785438';
+    ctx.fillRect(4, 6, w - 8, h - 10);
+    ctx.fillStyle = '#b48864';
+    ctx.fillRect(6, 6, w - 12, h - 34);
+    ctx.fillStyle = '#cfa480';
+    ctx.fillRect(6, 6, w - 12, 4);
+    ctx.fillRect(6, 6, 5, h - 34);
+    ctx.fillRect(w - 11, 6, 5, h - 34);
+
+    // Recessed corrugated slate-blue roof inside parapet (Exact match to IMG_1323 right!)
+    ctx.fillStyle = '#485878';
+    ctx.fillRect(12, 11, w - 24, h - 42);
+    ctx.fillStyle = '#687ca0';
+    for (let y = 13; y < h - 33; y += 5) {
+      ctx.fillRect(14, y, w - 28, 3);
     }
-    // long window band
-    drawWindow(ctx, 8, eaveY + 6, cx - 30, 13);
-    drawWindow(ctx, cx + 16, eaveY + 6, w - cx - 24, 13);
-    // awning
-    bRect(ctx, B_OUT, cx - 15, eaveY + 1, 30, 6);
-    for (let i = 0; i < 7; i++) bRect(ctx, i % 2 ? '#f8f8f8' : '#4890d0', cx - 14 + i * 4, eaveY + 2, 4, 4);
-    drawGlassDoor(ctx, cx, h);
-  } else {
-    // gym (rock-type): bronze roof, stone block walls, boulder emblem
-    const roof: Ramp = { dark: '#6c4020', mid: '#9c6030', light: '#c48040', hi: '#e8a860' };
-    const wall: Ramp = { dark: '#7c7870', mid: '#a8a498', light: '#c8c4b8', hi: '#e0dcd0' };
-    drawWall(ctx, w, h, eaveY, wall);
-    for (let y = eaveY + 4, r = 0; y < h - 5; y += 6, r++) {
-      bRect(ctx, wall.dark, 4, y, w - 9, 1);
-      for (let x = 6 + (r % 2) * 7; x < w - 6; x += 14) bRect(ctx, wall.dark, x, y + 1, 1, 5);
+
+    // Warm stone lower wall
+    ctx.fillStyle = '#e4dcd0';
+    ctx.fillRect(6, h - 30, w - 12, 24);
+    ctx.fillStyle = '#989088';
+    ctx.fillRect(6, h - 10, w - 12, 4);
+
+    // Arched brown entrance awning on tile 2 (door at x=6 in sandgem_town, which is index 2 of 4..7)
+    const doorCenterX = 2 * 32 + 16;
+    ctx.fillStyle = '#482c18';
+    ctx.fillRect(doorCenterX - 16, h - 42, 32, 14);
+    ctx.fillStyle = '#986438';
+    ctx.fillRect(doorCenterX - 14, h - 40, 28, 11);
+    ctx.fillStyle = '#c48c58';
+    ctx.fillRect(doorCenterX - 12, h - 39, 24, 5);
+    // Emblem on awning
+    ctx.fillStyle = '#f8f4e8';
+    ctx.fillRect(doorCenterX - 4, h - 38, 8, 6);
+
+    // Lab entrance glass doors
+    ctx.fillStyle = '#203040';
+    ctx.fillRect(doorCenterX - 11, h - 27, 22, 23);
+    ctx.fillStyle = '#5098d8';
+    ctx.fillRect(doorCenterX - 9, h - 25, 18, 21);
+    ctx.fillStyle = '#a8e0ff';
+    ctx.fillRect(doorCenterX - 7, h - 23, 6, 17);
+    ctx.fillRect(doorCenterX + 1, h - 23, 6, 17);
+
+    // Wide lab windows on left
+    ctx.fillStyle = '#283848';
+    ctx.fillRect(12, h - 25, 36, 14);
+    ctx.fillStyle = '#f0f4f8';
+    ctx.fillRect(13, h - 24, 34, 12);
+    ctx.fillStyle = '#68b4e8';
+    ctx.fillRect(15, h - 22, 14, 8);
+    ctx.fillRect(31, h - 22, 14, 8);
+  } else if (kind === 'gym') {
+    // Oreburgh Pokémon Gym (Industrial Mine Steel & Stone Roof)
+    ctx.fillStyle = '#181c20';
+    ctx.fillRect(2, 4, w - 4, h - 8);
+    ctx.fillStyle = '#384048';
+    ctx.fillRect(4, 6, w - 8, h - 12);
+
+    // Corrugated steel roof panels
+    ctx.fillStyle = '#505864';
+    ctx.fillRect(6, 8, w - 12, h - 36);
+    ctx.fillStyle = '#687480';
+    for (let x = 10; x < w - 10; x += 12) {
+      ctx.fillRect(x, 10, 6, h - 40);
     }
-    drawFlatRoof(ctx, w, eaveY, roof);
-    // columns
-    for (const x of [6, w - 14]) {
-      bRect(ctx, B_OUT, x, eaveY - 2, 8, h - eaveY - 2);
-      bRect(ctx, '#e8e0d0', x + 1, eaveY - 1, 6, h - eaveY - 4);
-      bRect(ctx, '#b8b0a0', x + 5, eaveY - 1, 2, h - eaveY - 4);
-    }
-    // boulder emblem
-    const rock = [
-      '....kkkkk....',
-      '..kkLLLLMkk..',
-      '.kLLHHLMMMMk.',
-      'kLLHLLMMMMDDk',
-      'kLMMMMMMMDDDk',
-      'kMMMDMMMDDDDk',
-      '.kDDDDDDDDDk.',
-      '..kkkkkkkkk..',
-    ];
-    bRect(ctx, B_OUT, cx - 12, 9, 24, 16);
-    bRect(ctx, '#f0c040', cx - 11, 10, 22, 14);
-    bRect(ctx, '#c89020', cx - 11, 22, 22, 2);
-    drawPixelMatrix(ctx, rock, { k: B_OUT, H: '#e8e0d0', L: '#c0b8a8', M: '#989080', D: '#6c6458' }, cx - 6, 13);
-    // big double doors
-    bRect(ctx, B_OUT, cx - 14, h - 28, 28, 25);
-    bRect(ctx, '#c8a040', cx - 13, h - 27, 26, 23);
-    bRect(ctx, '#4a3424', cx - 11, h - 25, 10, 21);
-    bRect(ctx, '#4a3424', cx + 1, h - 25, 10, 21);
-    bRect(ctx, '#6c4c34', cx - 10, h - 24, 8, 2);
-    bRect(ctx, '#6c4c34', cx + 2, h - 24, 8, 2);
-    bRect(ctx, '#f0c040', cx - 3, h - 15, 2, 2);
-    bRect(ctx, '#f0c040', cx + 1, h - 15, 2, 2);
-    bRect(ctx, '#d8d8d0', cx - 15, h - 3, 30, 2);
+
+    // Orange-gold steel girder beams
+    ctx.fillStyle = '#d87018';
+    ctx.fillRect(4, 6, w - 8, 5);
+    ctx.fillRect(4, h - 32, w - 8, 4);
+
+    // Gym crest badge in center
+    const cx = Math.floor(w / 2);
+    ctx.fillStyle = '#201810';
+    ctx.fillRect(cx - 12, 14, 24, 16);
+    ctx.fillStyle = '#f0a820';
+    ctx.fillRect(cx - 10, 16, 20, 12);
+    ctx.fillStyle = '#ffe878';
+    ctx.fillRect(cx - 6, 18, 12, 8);
+
+    // Automatic Gym Doors
+    ctx.fillStyle = '#182430';
+    ctx.fillRect(cx - 14, h - 27, 28, 23);
+    ctx.fillStyle = '#50a8d8';
+    ctx.fillRect(cx - 12, h - 25, 24, 21);
+    ctx.fillStyle = '#a8e4ff';
+    ctx.fillRect(cx - 10, h - 23, 9, 17);
+    ctx.fillRect(cx + 1, h - 23, 9, 17);
   }
 
   spriteCache[key] = canvas;

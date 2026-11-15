@@ -644,7 +644,7 @@ export const OverworldScreen: React.FC<OverworldScreenProps> = ({
 
         // 2b. Multi-Tile 3D Buildings
         mapBuildings.forEach((b) => {
-          const bCanvas = getBuildingStructureCanvas(b.kind, b.widthTiles, b.heightTiles, b.x + b.y);
+          const bCanvas = getBuildingStructureCanvas(b.kind, b.widthTiles, b.heightTiles);
           const bottomRow = b.y + b.heightTiles - 1;
           renderables.push({
             sortY: bottomRow + 0.2,
