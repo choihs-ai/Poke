@@ -1,0 +1,6 @@
+{
+  "name": "포켓몬스터 신오 어드벤처 - 4세대 도트 RPG",
+  "description": "포켓몬스터 4세대(DP 디아루가·펄기아) 스타일의 30분 분량 정통 도트 픽셀 RPG. 떡잎마을 스타팅 선택부터 201·202번 도로, 샌드젬타운, 무쇠시티 체육관 관장 강석과의 결전까지!",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .pixelated {
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+  }
+  
+  .font-pixel {
+    font-family: 'DotGothic16', 'Press Start 2P', monospace, sans-serif;
+  }
+}
+
+/* Pokemon Gen 4 classic frame styling */
+.ds-bezel {
+  box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.2), 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+.pixel-border {
+  border-style: solid;
+  border-width: 4px;
+  border-image: linear-gradient(to bottom, #8bb4e8, #3b609c) 1;
+}
+
+/* Battle dialog frame in Gen 4 Platinum / DP style */
+.dialog-box-gen4 {
+  background: #f8f9fa;
+  border: 4px solid #4a5568;
+  box-shadow: inset 0 0 0 2px #cbd5e1, 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+}
+
+@keyframes grass-rustle {
+  0% { transform: scale(1) rotate(0deg); }
+  25% { transform: scale(1.1) rotate(-4deg); }
+  75% { transform: scale(1.1) rotate(4deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+.animate-rustle {
+  animation: grass-rustle 0.3s ease-in-out;
+}
